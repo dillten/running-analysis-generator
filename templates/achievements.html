@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Achievements</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="achievements-data.js"></script>
+<style>
+  main { padding: 20px 28px; max-width: 1300px; }
+
+  .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 12px; padding-left: 2px; }
+
+  /* ── Summary strip ── */
+  .summary-strip { display: flex; gap: 1px; margin-bottom: 28px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--border); }
+  .ss-box { background: var(--bg2); flex: 1; padding: 12px 16px; min-width: 80px; }
+  .ss-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); margin-bottom: 4px; }
+  .ss-val { font-size: 20px; font-weight: 700; font-family: 'Atkinson Hyperlegible Mono', monospace; line-height: 1; }
+  .ss-sub { font-size: 9px; color: var(--muted2); margin-top: 2px; }
+  .c-cyan   { color: var(--accent); }
+  .c-green  { color: var(--accent3); }
+  .c-amber  { color: var(--accent4); }
+  .c-red    { color: var(--accent5); }
+  .c-muted  { color: var(--muted2); }
+
+  /* ── Speed grid ── */
+  .speed-grid-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 28px; }
+  .speed-grid-header { padding: 12px 16px 10px; border-bottom: 1px solid var(--border); }
+  .speed-grid-header h2 { font-size: 14px; font-weight: 700; color: var(--text); }
+  .speed-grid-header p  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .sg-table { width: 100%; border-collapse: collapse; }
+  .sg-table thead th {
+    background: var(--bg3); padding: 7px 12px; font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .sg-table thead th:first-child { text-align: left; padding-left: 16px; width: 80px; }
+  .sg-table thead th { text-align: center; }
+
+  .sg-table tbody tr { border-bottom: 1px solid var(--border); }
+  .sg-table tbody tr:last-child { border-bottom: none; }
+  .sg-dist-cell {
+    padding: 0 12px 0 16px; font-size: 12px; font-weight: 700;
+    color: var(--muted2); white-space: nowrap; vertical-align: middle;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+
+  .sg-cell {
+    padding: 6px 8px; text-align: center; vertical-align: top;
+    border-left: 1px solid var(--border); position: relative;
+    min-width: 120px;
+  }
+  .sg-cell.empty { color: var(--muted); font-size: 10px; vertical-align: middle; }
+
+  .sg-pace {
+    font-size: 16px; font-weight: 700;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    line-height: 1; display: block;
+  }
+  .sg-time  { font-size: 9px; color: var(--muted2); display: block; margin-top: 2px; }
+  .sg-name  { font-size: 9px; color: var(--text); display: block; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; text-align: center; }
+  .sg-date  { font-size: 9px; color: var(--muted); display: block; margin-top: 1px; }
+  .sg-meta  { font-size: 8px; margin-top: 3px; display: flex; justify-content: center; gap: 5px; align-items: center; flex-wrap: wrap; }
+  .sg-rank  { font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 8px; padding: 1px 4px; border-radius: 3px; border: 1px solid; }
+  .sg-pct   { font-size: 8px; }
+
+  /* Tier colors for pace text and rank badge */
+  .tier-pr     { color: #ffd700; }
+  .tier-pr .sg-rank  { color: #ffd700; border-color: rgba(255,215,0,0.4); background: rgba(255,215,0,0.08); }
+  .tier-hot    { color: var(--accent3); }
+  .tier-hot .sg-rank { color: var(--accent3); border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.06); }
+  .tier-good   { color: var(--accent); }
+  .tier-good .sg-rank { color: var(--accent); border-color: rgba(0,212,255,0.3); background: rgba(0,212,255,0.05); }
+  .tier-ok     { color: var(--text); }
+  .tier-ok .sg-rank   { color: var(--muted2); border-color: var(--border); }
+  .tier-muted  { color: var(--muted2); }
+  .tier-muted .sg-rank { color: var(--muted); border-color: var(--border); }
+
+  .sg-cell .sg-pct.above { color: var(--accent3); }
+  .sg-cell .sg-pct.below { color: var(--accent5); }
+
+  .race-pip { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--accent4); vertical-align: middle; margin-right: 2px; }
+
+  /* ── Records cards ── */
+  .records-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-bottom: 28px; }
+  .rec-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .rec-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 8px; }
+  .rec-val   { font-size: 20px; font-weight: 700; font-family: 'Atkinson Hyperlegible Mono', monospace; line-height: 1; margin-bottom: 4px; }
+  .rec-name  { font-size: 11px; color: var(--muted2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rec-date  { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .rec-link  { font-size: 10px; color: var(--muted); text-decoration: none; margin-top: 4px; display: inline-block; }
+  .rec-link:hover { color: var(--accent); }
+
+  /* ── Milestones ── */
+  .milestones-list { display: flex; flex-direction: column; gap: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 28px; }
+  .ms-row { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); transition: background 0.08s; text-decoration: none; color: inherit; }
+  .ms-row:last-child { border-bottom: none; }
+  .ms-row:hover { background: rgba(255,255,255,0.025); }
+  .ms-icon  { font-size: 16px; flex-shrink: 0; width: 24px; text-align: center; }
+  .ms-val   { font-size: 13px; font-weight: 700; color: var(--accent4); font-family: 'Atkinson Hyperlegible Mono', monospace; flex-shrink: 0; min-width: 80px; }
+  .ms-title { font-size: 12px; color: var(--text); font-weight: 700; min-width: 160px; }
+  .ms-detail { font-size: 11px; color: var(--muted2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ms-date   { font-size: 10px; color: var(--muted); font-family: 'Atkinson Hyperlegible Mono', monospace; flex-shrink: 0; }
+
+  footer { margin-top: 36px; padding: 14px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; }
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F3C6; Achievements</h1>
+  <span class="subtitle">Speed records &middot; volume peaks &middot; milestones &middot; all running activities</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html" class="active">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+<div id="summary-strip" class="summary-strip"></div>
+
+<!-- ── Speed Records ── -->
+<div class="section-title">Speed Records by Distance &amp; Window</div>
+<div class="speed-grid-wrap">
+  <div class="speed-grid-header">
+    <h2>Best Efforts Matrix</h2>
+    <p>Fastest effort at each distance within each time window &middot; color = proximity to all-time PR &middot; <span class="c-amber">●</span> race</p>
+  </div>
+  <table class="sg-table" id="speed-grid-table"></table>
+</div>
+
+<!-- ── Volume Records ── -->
+<div class="section-title">Volume Records</div>
+<div class="records-grid" id="volume-records"></div>
+
+<!-- ── Single-Run Records ── -->
+<div class="section-title">Single-Run Records</div>
+<div class="records-grid" id="single-run-records"></div>
+
+<!-- ── Milestones ── -->
+<div class="section-title">Milestones</div>
+<div class="milestones-list" id="milestones-list"></div>
+
+</main>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a>.
+</footer>
+
+<script>
+const A = ACHIEVEMENTS;
+
+// ── Summary strip ───────────────────────────────────────────────
+function buildSummary() {
+  const { total_runs, total_miles, total_races, streaks } = A;
+  const pr5k = (A.speed_grid['5K'] || {})['all'];
+  const prHm = (A.speed_grid['Half Marathon'] || {})['all'];
+  document.getElementById('summary-strip').innerHTML = `
+    <div class="ss-box"><div class="ss-lbl">Total Runs</div><div class="ss-val c-cyan">${total_runs.toLocaleString()}</div><div class="ss-sub">${total_races} races</div></div>
+    <div class="ss-box"><div class="ss-lbl">Total Miles</div><div class="ss-val c-green">${total_miles.toLocaleString()}</div><div class="ss-sub">lifetime</div></div>
+    <div class="ss-box"><div class="ss-lbl">5K PR</div><div class="ss-val c-amber">${pr5k ? pr5k.pace_mile+'/mi' : '—'}</div><div class="ss-sub">${pr5k ? pr5k.time_fmt : ''}</div></div>
+    <div class="ss-box"><div class="ss-lbl">HM PR</div><div class="ss-val c-amber">${prHm ? prHm.pace_mile+'/mi' : '—'}</div><div class="ss-sub">${prHm ? prHm.time_fmt : ''}</div></div>
+    <div class="ss-box"><div class="ss-lbl">Day Streak</div><div class="ss-val c-cyan">${streaks.current_day}</div><div class="ss-sub">best ${streaks.longest_day}</div></div>
+    <div class="ss-box"><div class="ss-lbl">Week Streak</div><div class="ss-val c-green">${streaks.current_week}</div><div class="ss-sub">best ${streaks.longest_week}</div></div>
+  `;
+}
+
+// ── Speed grid ───────────────────────────────────────────────────
+function pctTier(pctOffPr) {
+  if (pctOffPr === 0)   return 'tier-pr';
+  if (pctOffPr <= 1.5)  return 'tier-hot';
+  if (pctOffPr <= 4.0)  return 'tier-good';
+  if (pctOffPr <= 8.0)  return 'tier-ok';
+  return 'tier-muted';
+}
+
+function buildSpeedGrid() {
+  const { speed_grid, dist_labels, windows } = A;
+  const table = document.getElementById('speed-grid-table');
+
+  let html = '<thead><tr><th></th>';
+  windows.forEach(w => { html += `<th>${w.label}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  dist_labels.forEach(lbl => {
+    const row = speed_grid[lbl];
+    if (!row) return;
+    html += `<tr><td class="sg-dist-cell">${lbl}</td>`;
+    windows.forEach(w => {
+      const cell = row[w.key];
+      if (!cell) { html += `<td class="sg-cell empty">—</td>`; return; }
+      const tier = pctTier(cell.pct_off_pr);
+      const pctStr = cell.is_pr
+        ? '<span style="color:#ffd700;font-size:8px">★ PR</span>'
+        : `<span class="sg-pct ${cell.pct_off_pr < 0 ? 'above' : 'below'}">+${cell.pct_off_pr.toFixed(1)}%</span>`;
+      const racePip = cell.is_race ? '<span class="race-pip"></span>' : '';
+      const rankBadge = cell.is_pr ? '' : `<span class="sg-rank">#${cell.all_time_rank}</span>`;
+      const shortName = cell.name ? cell.name.substring(0, 28) + (cell.name.length > 28 ? '…' : '') : '';
+      html += `<td class="sg-cell ${tier}">
+        <a href="activity/${cell.activity_id}.html" style="text-decoration:none;color:inherit">
+          <span class="sg-pace">${cell.pace_mile}</span>
+          <span class="sg-time">${cell.time_fmt}</span>
+          <span class="sg-name">${shortName}</span>
+          <span class="sg-date">${cell.date}</span>
+          <span class="sg-meta">${rankBadge}${pctStr}${racePip}</span>
+        </a>
+      </td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody>';
+  table.innerHTML = html;
+}
+
+// ── Volume records ───────────────────────────────────────────────
+function recCard(label, valStr, name, date, subLine, actId, colorClass) {
+  const link = actId ? `<a class="rec-link" href="activity/${actId}.html">→ View activity</a>` : '';
+  return `<div class="rec-card">
+    <div class="rec-label">${label}</div>
+    <div class="rec-val ${colorClass || 'c-green'}">${valStr}</div>
+    <div class="rec-name">${name || ''}</div>
+    ${subLine ? `<div class="rec-date">${subLine}</div>` : ''}
+    ${link}
+  </div>`;
+}
+
+function buildVolumeRecords() {
+  const v = A.volume;
+  let html = '';
+  if (v.peak_week_all)  html += recCard('Peak Week (all time)', v.peak_week_all.miles.toFixed(1) + ' mi', `Week of ${v.peak_week_all.date_start}`, null, `${v.peak_week_all.runs} runs · ${v.peak_week_all.hours.toFixed(1)} hrs`, null, 'c-green');
+  if (v.peak_week_365d) html += recCard('Peak Week (last year)', v.peak_week_365d.miles.toFixed(1) + ' mi', `Week of ${v.peak_week_365d.date_start}`, null, `${v.peak_week_365d.runs} runs`, null, 'c-cyan');
+  if (v.peak_week_90d)  html += recCard('Peak Week (last 90 days)', v.peak_week_90d.miles.toFixed(1) + ' mi', `Week of ${v.peak_week_90d.date_start}`, null, `${v.peak_week_90d.runs} runs`, null, 'c-cyan');
+  if (v.peak_month_miles) html += recCard('Peak Month (miles)', v.peak_month_miles.miles.toFixed(1) + ' mi', v.peak_month_miles.ym, null, `${v.peak_month_miles.runs} runs · ${v.peak_month_miles.hours.toFixed(1)} hrs`, null, 'c-amber');
+  if (v.peak_month_runs)  html += recCard('Peak Month (runs)', v.peak_month_runs.runs + ' runs', v.peak_month_runs.ym, null, `${v.peak_month_runs.miles.toFixed(1)} mi`, null, 'c-amber');
+  if (v.peak_year_miles)  html += recCard('Peak Year (miles)', v.peak_year_miles.miles.toFixed(1) + ' mi', String(v.peak_year_miles.year), null, `${v.peak_year_miles.runs} runs`, null, 'c-green');
+  if (v.peak_year_runs)   html += recCard('Peak Year (runs)', v.peak_year_runs.runs + ' runs', String(v.peak_year_runs.year), null, `${v.peak_year_runs.miles.toFixed(1)} mi`, null, 'c-green');
+  document.getElementById('volume-records').innerHTML = html || '<p style="color:var(--muted)">No data</p>';
+}
+
+// ── Single-run records ───────────────────────────────────────────
+function buildSingleRunRecords() {
+  const sr = A.single_run;
+  const DEFS = [
+    ['most_load_all',   'Highest Training Load (all time)', r => r.value ? Math.round(r.value) : '—', 'c-red'],
+    ['most_load_365d',  'Highest Training Load (last year)', r => r.value ? Math.round(r.value) : '—', 'c-red'],
+    ['most_elev_all',   'Most Elevation (all time)', r => r.value_fmt || '—', 'c-amber'],
+    ['most_elev_365d',  'Most Elevation (last year)', r => r.value_fmt || '—', 'c-amber'],
+    ['longest_all',     'Longest Run (all time)', r => r.value_fmt || '—', 'c-green'],
+    ['longest_365d',    'Longest Run (last year)', r => r.value_fmt || '—', 'c-green'],
+    ['fastest_avg_all', 'Fastest Avg Pace (all time)', r => r.value_fmt || '—', 'c-cyan'],
+  ];
+  let html = '';
+  DEFS.forEach(([key, label, valFn, cls]) => {
+    const r = sr[key];
+    if (!r) return;
+    html += recCard(label, valFn(r), r.name, null, `${r.date} · ${r.miles.toFixed(1)} mi`, r.activity_id, cls);
+  });
+  document.getElementById('single-run-records').innerHTML = html || '<p style="color:var(--muted)">No data</p>';
+}
+
+// ── Milestones ───────────────────────────────────────────────────
+function buildMilestones() {
+  const ms = A.milestones;
+  const html = ms.map(m =>
+    `<a class="ms-row" href="activity/${m.activity_id}.html">
+      <span class="ms-icon">${m.icon}</span>
+      <span class="ms-val">${m.value}</span>
+      <span class="ms-title">${m.title}</span>
+      <span class="ms-detail">${m.detail || ''}</span>
+      <span class="ms-date">${m.date}</span>
+    </a>`
+  ).join('');
+  document.getElementById('milestones-list').innerHTML = html || '<div style="padding:16px;color:var(--muted)">No milestones found</div>';
+}
+
+buildSummary();
+buildSpeedGrid();
+buildVolumeRecords();
+buildSingleRunRecords();
+buildMilestones();
+</script>
+</body>
+</html>

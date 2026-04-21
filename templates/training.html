@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Training Plans</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script src="training-data.js"></script>
+<style>
+  :root {
+    --accent2: #7c3aed;
+    --pr-gold: #fbbf24;
+  }
+  code, .mono { font-family: 'Atkinson Hyperlegible Mono', 'Fira Mono', monospace; }
+
+  .layout {
+    display: flex;
+    height: calc(100vh - 106px);
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 280px;
+    min-width: 220px;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .sidebar-head {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg2); z-index: 1;
+  }
+  .sidebar-head .label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .filter-btns {
+    display: flex; gap: 4px; flex-wrap: wrap;
+  }
+  .filter-btn {
+    font-size: 10px; padding: 2px 7px; border-radius: 3px; cursor: pointer;
+    border: 1px solid var(--border); color: var(--muted2); background: transparent;
+    transition: all 0.12s;
+  }
+  .filter-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.07); }
+
+  .race-list { padding: 6px 0; }
+  .race-item {
+    padding: 7px 12px 7px 10px; cursor: pointer;
+    display: flex; gap: 8px; align-items: flex-start;
+    border-left: 2px solid transparent; transition: all 0.12s;
+  }
+  .race-item:hover { background: rgba(255,255,255,0.03); }
+  .race-item.active { background: rgba(0,212,255,0.05); border-left-color: var(--accent); }
+
+  .race-item input[type=checkbox] {
+    margin-top: 2px; flex-shrink: 0; accent-color: var(--accent); cursor: pointer;
+    width: 13px; height: 13px;
+  }
+  .race-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .race-item .ri-name {
+    font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .race-item .ri-meta {
+    font-size: 10px; color: var(--muted); display: flex; gap: 6px; align-items: center;
+  }
+  .ri-build {
+    font-size: 9px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; margin-top: 1px;
+  }
+  .ri-build span { color: var(--muted2); }
+  .ri-badge {
+    font-size: 9px; font-weight: 700; padding: 0px 4px; border-radius: 2px;
+    text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .badge-5K    { background: rgba(0,212,255,0.12);  color: var(--accent); }
+  .badge-10K   { background: rgba(16,185,129,0.12); color: var(--accent3); }
+  .badge-hm    { background: rgba(124,58,237,0.12); color: #a78bfa; }
+  .badge-m     { background: rgba(245,158,11,0.12); color: var(--accent4); }
+  .badge-ultra { background: rgba(239,68,68,0.12);  color: var(--accent5); }
+
+  /* ── Main panel ── */
+  .main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+  }
+
+  .placeholder {
+    display: flex; align-items: center; justify-content: center;
+    height: 200px; color: var(--muted); font-size: 13px;
+  }
+
+  /* ── Race header ── */
+  .race-header {
+    display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
+  }
+  .race-header h2 { font-size: 18px; font-weight: 700; color: var(--text); }
+  .race-header .rh-meta { font-size: 12px; color: var(--muted2); display: flex; gap: 10px; }
+  .race-header .rh-result { font-size: 12px; color: var(--accent3); font-family: monospace; }
+
+  /* ── Comparison section separator ── */
+  .cmp-block {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 20px;
+    background: var(--bg2);
+  }
+  .cmp-block .race-header { margin-bottom: 12px; }
+  .cmp-block .race-header h2 { font-size: 15px; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex; gap: 18px; margin-bottom: 14px; align-items: center; flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted2); }
+  .legend-swatch { width: 24px; height: 8px; border-radius: 2px; }
+  .intensity-legend {
+    display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted2);
+  }
+  .intensity-gradient {
+    width: 80px; height: 8px; border-radius: 2px;
+    background: linear-gradient(to right, #22c55e, #f59e0b, #ef4444);
+  }
+
+  /* ── 16-week grid ── */
+  .weeks-grid {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    margin-bottom: 24px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .week-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 48px;
+    flex: 1;
+    cursor: pointer;
+  }
+  .week-col:hover .week-bar { opacity: 0.85; }
+  .week-col.selected .week-bar { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .week-bar-wrap {
+    width: 100%;
+    height: 140px;
+    display: flex;
+    align-items: flex-end;
+    position: relative;
+  }
+
+  .week-bar {
+    width: 100%;
+    border-radius: 3px 3px 0 0;
+    min-height: 2px;
+    transition: opacity 0.12s;
+    position: relative;
+  }
+
+  .run-dots {
+    position: absolute;
+    bottom: 100%;
+    left: 0; right: 0;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 2px;
+    padding-bottom: 2px;
+  }
+  .run-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .week-mi {
+    font-size: 10px;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .week-mi.zero { color: var(--muted); }
+
+  .week-label {
+    font-size: 9px;
+    color: var(--muted);
+    text-align: center;
+    white-space: nowrap;
+  }
+  .week-label.race-week { color: var(--accent4); font-weight: 700; }
+
+  .race-col .week-bar-wrap::after {
+    content: '';
+    position: absolute;
+    bottom: 0; top: 0;
+    left: 50%;
+    width: 1px;
+    background: rgba(245,158,11,0.3);
+    pointer-events: none;
+  }
+
+  /* ── Run detail panel ── */
+  .detail-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+  }
+  .detail-panel h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px;
+    color: var(--accent); margin-bottom: 10px; font-weight: 700;
+  }
+  .detail-empty { color: var(--muted); font-size: 12px; }
+
+  .runs-table {
+    width: 100%; border-collapse: collapse; font-size: 11px;
+  }
+  .runs-table th {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); padding: 3px 8px 5px; text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+  .runs-table th:first-child { text-align: left; padding-left: 0; }
+  .runs-table td {
+    padding: 4px 8px; white-space: nowrap; border-bottom: 1px solid rgba(30,45,69,0.5);
+  }
+  .runs-table td:first-child { padding-left: 0; color: var(--muted2); }
+  .runs-table tr:last-child td { border-bottom: none; }
+  .runs-table .r { text-align: right; }
+  .runs-table .mono { font-family: 'Atkinson Hyperlegible Mono', monospace; }
+  .runs-table .hi { color: var(--text); }
+  .runs-table .ac { color: var(--accent4); }
+
+  .int-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle;
+  }
+
+  /* ── Weekly summary stats ── */
+  .week-stats {
+    display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .wstat {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 12px; min-width: 90px;
+  }
+  .wstat .wl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 3px; }
+  .wstat .wv { font-size: 16px; font-weight: 700; color: var(--accent); font-family: monospace; }
+  .wstat .ws { font-size: 10px; color: var(--muted2); margin-top: 1px; }
+
+  /* ── Coach's Notes (AI build analysis) ── */
+  .coach-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent3);
+    border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;
+  }
+  .coach-card h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px;
+    color: var(--accent3); margin-bottom: 12px; font-weight: 700;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .coach-body p { font-size: 13px; line-height: 1.7; color: var(--text); margin-bottom: 10px; }
+  .coach-body p:last-child { margin-bottom: 0; }
+  .coach-body strong { color: var(--accent4); }
+  .coach-body em { color: var(--muted2); }
+  .coach-body ul, .coach-body ol { margin: 0 0 10px 18px; }
+  .coach-body li { font-size: 13px; line-height: 1.65; color: var(--text); margin-bottom: 3px; }
+  .coach-body h1, .coach-body h2, .coach-body h3 {
+    font-size: 12px; color: var(--accent3); font-weight: 700;
+    margin: 14px 0 6px; text-transform: none; letter-spacing: 0;
+  }
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F4C5; Training Plans</h1>
+  <span class="subtitle">Garmin &middot; 16-week build-up before each race</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html" class="active">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<div class="layout">
+
+  <!-- ── Sidebar ── -->
+  <div class="sidebar">
+    <div class="sidebar-head">
+      <div class="label">Select Races (click to compare)</div>
+      <div class="filter-btns">
+        <button class="filter-btn active" data-filter="All" onclick="setFilter(this,'All')">All</button>
+        <button class="filter-btn" data-filter="Marathon" onclick="setFilter(this,'Marathon')">M</button>
+        <button class="filter-btn" data-filter="Half Marathon" onclick="setFilter(this,'HM')">HM</button>
+        <button class="filter-btn" data-filter="10K" onclick="setFilter(this,'10K')">10K</button>
+        <button class="filter-btn" data-filter="5K" onclick="setFilter(this,'5K')">5K</button>
+        <button class="filter-btn" data-filter="Ultra" onclick="setFilter(this,'Ultra')">Ultra</button>
+      </div>
+    </div>
+    <div class="race-list" id="race-list"></div>
+  </div>
+
+  <!-- ── Main panel ── -->
+  <div class="main" id="main-panel">
+    <div class="placeholder" id="placeholder">&#8592; Select a race to view its training block</div>
+    <div id="training-view" style="display:none"></div>
+  </div>
+
+</div>
+
+<script>
+const DATA = TRAINING_DATA;
+
+function distGroup(label) {
+  if (!label) return 'Other';
+  const l = label.toLowerCase();
+  if (l.includes('marathon') && !l.includes('half')) return 'Marathon';
+  if (l.includes('half') || l === '~hm') return 'Half Marathon';
+  if (l === '10k' || l === '~10k') return '10K';
+  if (l === '5k') return '5K';
+  if (l === '50k' || l === 'ultra') return 'Ultra';
+  return 'Other';
+}
+
+function badgeClass(label) {
+  const g = distGroup(label);
+  if (g === 'Marathon') return 'badge-m';
+  if (g === 'Half Marathon') return 'badge-hm';
+  if (g === '10K') return 'badge-10K';
+  if (g === '5K') return 'badge-5K';
+  if (g === 'Ultra') return 'badge-ultra';
+  return 'badge-5K';
+}
+
+function badgeLabel(label) {
+  const g = distGroup(label);
+  if (g === 'Marathon') return 'M';
+  if (g === 'Half Marathon') return 'HM';
+  return label;
+}
+
+function intensityColor(v) {
+  if (v == null || isNaN(v)) return '#334155';
+  const t = Math.max(0, Math.min(1, v));
+  if (t <= 0.5) return lerpHex('#22c55e', '#f59e0b', t * 2);
+  return lerpHex('#f59e0b', '#ef4444', (t - 0.5) * 2);
+}
+
+function lerpHex(a, b, t) {
+  const r1=parseInt(a.slice(1,3),16),g1=parseInt(a.slice(3,5),16),b1=parseInt(a.slice(5,7),16);
+  const r2=parseInt(b.slice(1,3),16),g2=parseInt(b.slice(3,5),16),b2=parseInt(b.slice(5,7),16);
+  const r=Math.round(r1+(r2-r1)*t).toString(16).padStart(2,'0');
+  const g=Math.round(g1+(g2-g1)*t).toString(16).padStart(2,'0');
+  const bh=Math.round(b1+(b2-b1)*t).toString(16).padStart(2,'0');
+  return `#${r}${g}${bh}`;
+}
+
+function fmtHrs(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function fmtElev(ft) {
+  if (!ft) return '0 ft';
+  return ft >= 1000 ? `${(ft/1000).toFixed(1)}k ft` : `${ft} ft`;
+}
+
+let selectedIndices = new Set();
+let currentFilter = 'All';
+let selectedWeek = null;
+
+function setFilter(btn, filter) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentFilter = filter;
+  renderSidebar();
+}
+
+function renderSidebar() {
+  const list = document.getElementById('race-list');
+  list.innerHTML = '';
+  DATA.forEach((block, idx) => {
+    const g = distGroup(block.race.distance_label);
+    if (currentFilter !== 'All' && g !== currentFilter) return;
+
+    const isActive = selectedIndices.has(idx);
+    const item = document.createElement('div');
+    item.className = 'race-item' + (isActive ? ' active' : '');
+
+    const buildTimeStr = fmtHrs(block.build_time_s || 0);
+    const buildElevStr = fmtElev(block.build_elev_ft || 0);
+
+    item.innerHTML = `
+      <input type="checkbox" ${isActive ? 'checked' : ''} onclick="toggleRace(event,${idx})">
+      <div class="race-item-body">
+        <div class="ri-name">${block.race.activity_name}</div>
+        <div class="ri-meta">
+          <span class="mono">${block.race.date}</span>
+          <span class="ri-badge ${badgeClass(block.race.distance_label)}">${badgeLabel(block.race.distance_label)}</span>
+          <span>${block.race.dist_miles} mi</span>
+        </div>
+        <div class="ri-build">
+          <span>&#x1F3C3; ${block.build_miles} mi</span>
+          <span>&#x23F1; ${buildTimeStr}</span>
+          <span>&#x26F0; ${buildElevStr}</span>
+          <span>${block.build_runs} runs</span>
+        </div>
+      </div>
+    `;
+    item.querySelector('.race-item-body').addEventListener('click', () => toggleRace(null, idx));
+    list.appendChild(item);
+  });
+}
+
+function toggleRace(e, idx) {
+  if (e) e.stopPropagation();
+  if (selectedIndices.has(idx)) {
+    selectedIndices.delete(idx);
+  } else {
+    selectedIndices.add(idx);
+  }
+  selectedWeek = null;
+  renderSidebar();
+  renderMain();
+}
+
+function renderMain() {
+  const indices = [...selectedIndices];
+  const placeholder = document.getElementById('placeholder');
+  const view = document.getElementById('training-view');
+
+  if (indices.length === 0) {
+    placeholder.style.display = 'flex';
+    view.style.display = 'none';
+    return;
+  }
+
+  placeholder.style.display = 'none';
+  view.style.display = 'block';
+
+  if (indices.length === 1) {
+    const block = DATA[indices[0]];
+    view.innerHTML = buildSingleView(block, true);
+    if (block.coach_notes) {
+      const el = document.getElementById(`coach-body-${block.race.activity_id}`);
+      if (el) el.innerHTML = marked.parse(block.coach_notes);
+    }
+  } else {
+    view.innerHTML = buildComparisonView(indices.map(i => DATA[i]));
+  }
+}
+
+function buildSingleView(block, withDetail) {
+  const weeks = block.weeks;
+  const peakMi = block.peak_miles || 1;
+
+  const totalMi   = weeks.reduce((s,w) => s + w.miles, 0);
+  const totalRuns = weeks.reduce((s,w) => s + w.runs, 0);
+  const totalLoad = weeks.reduce((s,w) => s + w.training_load, 0);
+  const avgWkMi   = totalMi / 16;
+
+  let html = `
+    <div class="race-header">
+      <h2>${block.race.activity_name}</h2>
+      <div class="rh-meta">
+        <span>${block.race.date}</span>
+        <span>${block.race.dist_miles} mi</span>
+      </div>
+      <div class="rh-result mono">${block.race.duration_fmt} &nbsp;·&nbsp; ${block.race.pace_mile}/mi</div>
+    </div>
+    <div class="week-stats">
+      <div class="wstat">
+        <div class="wl">16-wk Volume</div>
+        <div class="wv">${totalMi.toFixed(0)}</div>
+        <div class="ws">mi total</div>
+      </div>
+      <div class="wstat">
+        <div class="wl">Avg Week</div>
+        <div class="wv">${avgWkMi.toFixed(1)}</div>
+        <div class="ws">mi / week</div>
+      </div>
+      <div class="wstat">
+        <div class="wl">Peak Week</div>
+        <div class="wv">${peakMi.toFixed(1)}</div>
+        <div class="ws">mi</div>
+      </div>
+      <div class="wstat">
+        <div class="wl">Total Runs</div>
+        <div class="wv">${totalRuns}</div>
+        <div class="ws">sessions</div>
+      </div>
+      <div class="wstat">
+        <div class="wl">Build Time</div>
+        <div class="wv">${fmtHrs(block.build_time_s || 0)}</div>
+        <div class="ws">hrs/min</div>
+      </div>
+      <div class="wstat">
+        <div class="wl">Elevation</div>
+        <div class="wv">${fmtElev(block.build_elev_ft || 0)}</div>
+        <div class="ws">total climb</div>
+      </div>
+      <div class="wstat">
+        <div class="wl">Training Load</div>
+        <div class="wv">${totalLoad.toFixed(0)}</div>
+        <div class="ws">total</div>
+      </div>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:#334155"></div>No runs</div>
+      <div class="intensity-legend">
+        <span>Easy</span>
+        <div class="intensity-gradient"></div>
+        <span>Hard</span>
+        <span style="color:var(--muted);margin-left:4px">(bar color = avg intensity)</span>
+      </div>
+      <div class="legend-item" style="color:var(--muted);font-size:10px">Dots = individual runs</div>
+    </div>
+  `;
+
+  html += buildWeeksGrid(weeks, peakMi, withDetail ? 'selectWeek' : null);
+
+  if (withDetail) {
+    html += `<div class="detail-panel" id="detail-panel">
+      <h3>Week Detail</h3>
+      <div class="detail-empty" id="detail-content">Click a week column to see individual runs</div>
+    </div>`;
+  }
+
+  if (block.coach_notes) {
+    html += `<div class="coach-card">
+      <h3>&#x1F916; Coach's Notes — AI Build Analysis</h3>
+      <div class="coach-body" id="coach-body-${block.race.activity_id}"></div>
+    </div>`;
+  }
+
+  return html;
+}
+
+function buildComparisonView(blocks) {
+  let html = `<div class="legend" style="margin-bottom:18px">
+    <div class="intensity-legend">
+      <span>Easy</span><div class="intensity-gradient"></div><span>Hard</span>
+      <span style="color:var(--muted);margin-left:4px">(bar color = avg intensity)</span>
+    </div>
+  </div>`;
+
+  blocks.forEach(block => {
+    const weeks = block.weeks;
+    const peakMi = block.peak_miles || 1;
+    const totalMi = weeks.reduce((s,w) => s + w.miles, 0);
+    const avgWkMi = totalMi / 16;
+
+    html += `<div class="cmp-block">
+      <div class="race-header">
+        <h2>${block.race.activity_name}</h2>
+        <div class="rh-meta">
+          <span>${block.race.date}</span>
+          <span>${block.race.dist_miles} mi</span>
+        </div>
+        <div class="rh-result mono">${block.race.duration_fmt} &nbsp;·&nbsp; ${block.race.pace_mile}/mi</div>
+      </div>
+      <div class="week-stats">
+        <div class="wstat">
+          <div class="wl">Volume</div>
+          <div class="wv">${totalMi.toFixed(0)}</div>
+          <div class="ws">mi total</div>
+        </div>
+        <div class="wstat">
+          <div class="wl">Avg Week</div>
+          <div class="wv">${avgWkMi.toFixed(1)}</div>
+          <div class="ws">mi / wk</div>
+        </div>
+        <div class="wstat">
+          <div class="wl">Peak</div>
+          <div class="wv">${peakMi.toFixed(1)}</div>
+          <div class="ws">mi week</div>
+        </div>
+        <div class="wstat">
+          <div class="wl">Time</div>
+          <div class="wv">${fmtHrs(block.build_time_s || 0)}</div>
+          <div class="ws">total</div>
+        </div>
+        <div class="wstat">
+          <div class="wl">Elevation</div>
+          <div class="wv">${fmtElev(block.build_elev_ft || 0)}</div>
+          <div class="ws">climb</div>
+        </div>
+        <div class="wstat">
+          <div class="wl">Runs</div>
+          <div class="wv">${block.build_runs}</div>
+          <div class="ws">sessions</div>
+        </div>
+      </div>
+      ${buildWeeksGrid(weeks, peakMi, null)}
+    </div>`;
+  });
+
+  return html;
+}
+
+function buildWeeksGrid(weeks, peakMi, onClickFn) {
+  let html = `<div class="weeks-grid">`;
+  weeks.forEach((w, wi) => {
+    const heightPct = peakMi > 0 ? Math.max(0, (w.miles / peakMi) * 100) : 0;
+    const barColor  = w.runs > 0 ? intensityColor(w.intensity) : '#1e2d45';
+    const isRaceWk  = w.weeks_to_race === 0;
+    const miLabel   = w.miles > 0 ? w.miles.toFixed(1) : '—';
+    const wkLabel   = isRaceWk ? 'RACE' : `-${w.weeks_to_race}`;
+    const clickAttr = onClickFn ? `onclick="${onClickFn}(${wi})"` : '';
+
+    let dotHtml = '';
+    if (w.runs_list && w.runs_list.length) {
+      const sorted = [...w.runs_list].sort((a,b) => b.intensity - a.intensity);
+      dotHtml = sorted.map(r =>
+        `<div class="run-dot" style="background:${intensityColor(r.intensity)}" title="${r.date} · ${r.miles}mi · ${r.duration_fmt}${r.avg_hr ? ' · ' + r.avg_hr + ' bpm' : ''}${r.elev_ft ? ' · ' + r.elev_ft + 'ft ↑' : ''}"></div>`
+      ).join('');
+    }
+
+    html += `
+      <div class="week-col${isRaceWk ? ' race-col' : ''}" data-wi="${wi}" ${clickAttr} style="${onClickFn ? 'cursor:pointer' : 'cursor:default'}">
+        <div class="week-bar-wrap">
+          <div class="week-bar" style="height:${heightPct}%;background:${barColor}">
+            <div class="run-dots">${dotHtml}</div>
+          </div>
+        </div>
+        <div class="week-mi${w.miles === 0 ? ' zero' : ''}">${miLabel}</div>
+        <div class="week-label${isRaceWk ? ' race-week' : ''}">${wkLabel}</div>
+      </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function selectWeek(wi) {
+  selectedWeek = wi;
+  const indices = [...selectedIndices];
+  if (indices.length !== 1) return;
+  const block = DATA[indices[0]];
+  const week  = block.weeks[wi];
+
+  document.querySelectorAll('.week-col').forEach((el, i) => {
+    el.classList.toggle('selected', i === wi);
+  });
+
+  const panel = document.getElementById('detail-content');
+  if (!week || !week.runs_list || week.runs_list.length === 0) {
+    panel.innerHTML = '<span style="color:var(--muted)">No runs this week.</span>';
+    return;
+  }
+
+  const wtr = week.weeks_to_race;
+  const wLabel = wtr === 0 ? 'Race Week' : `${wtr} week${wtr>1?'s':''} before race`;
+
+  let html = `
+    <p style="font-size:11px;color:var(--muted2);margin-bottom:10px">
+      ${wLabel} &nbsp;·&nbsp; ${week.date_start} – ${week.date_end}
+      &nbsp;·&nbsp; ${week.miles.toFixed(1)} mi &nbsp;·&nbsp; ${week.runs} run${week.runs>1?'s':''}
+      ${week.training_load ? '&nbsp;·&nbsp; load ' + week.training_load.toFixed(0) : ''}
+      ${week.elev_gain_ft ? '&nbsp;·&nbsp; ' + week.elev_gain_ft + ' ft ↑' : ''}
+    </p>
+    <table class="runs-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Name</th>
+          <th class="r">Miles</th>
+          <th class="r">Time</th>
+          <th class="r">Elev ↑</th>
+          <th class="r">Avg HR</th>
+          <th class="r">Load</th>
+          <th class="r">Intensity</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  week.runs_list.forEach(r => {
+    const intColor = intensityColor(r.intensity);
+    const intPct   = r.intensity != null ? Math.round(r.intensity * 100) : null;
+    html += `
+      <tr>
+        <td class="mono">${r.date}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.name}</td>
+        <td class="r mono hi">${r.miles.toFixed(2)}</td>
+        <td class="r mono">${r.duration_fmt}</td>
+        <td class="r mono" style="color:var(--muted2)">${r.elev_ft ? r.elev_ft + ' ft' : '—'}</td>
+        <td class="r mono">${r.avg_hr != null ? r.avg_hr : '—'}</td>
+        <td class="r mono" style="color:var(--muted2)">${r.load != null ? r.load.toFixed(0) : '—'}</td>
+        <td class="r">
+          <span class="int-dot" style="background:${intColor}"></span>
+          ${intPct != null ? intPct + '%' : '—'}
+        </td>
+      </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  panel.innerHTML = html;
+}
+
+// Init
+renderSidebar();
+if (DATA.length > 0) {
+  toggleRace(null, 0);
+}
+</script>
+</body>
+</html>

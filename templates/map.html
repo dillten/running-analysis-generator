@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activity Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script src="map-data.js"></script>
+<style>
+:root {
+  --green: #10b981;
+  --gold:  #ffd700;
+  --gold2: #ffb300;
+}
+body { line-height: 1.5; overflow-x: hidden; }
+header { background: linear-gradient(135deg, #0d1b2e 0%, #0a1a0e 100%); }
+header h1 { color: var(--green); }
+.nav { position: sticky; top: 0; z-index: 1000; }
+
+/* ── Achievement bar ── */
+.achieve-bar {
+  display: flex; flex-wrap: wrap; gap: 0;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.achieve-stat {
+  flex: 1; min-width: 100px; padding: 14px 20px; text-align: center;
+  border-right: 1px solid var(--border);
+}
+.achieve-stat:last-child { border-right: none; }
+.achieve-num {
+  font-size: 32px; font-weight: 700; line-height: 1;
+  font-family: 'Atkinson Hyperlegible Mono', monospace;
+  color: var(--green);
+}
+.achieve-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-top: 4px; }
+
+/* ── Map ── */
+#map-wrap { position: relative; }
+#map {
+  width: 100%; height: 520px;
+  background: #060d14;
+}
+.leaflet-container { background: #060d14; }
+html[data-theme="light"] #map,
+html[data-theme="light"] .leaflet-container { background: #d8e8f0; }
+.leaflet-popup-content-wrapper {
+  background: var(--bg2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  font-family: 'Atkinson Hyperlegible', system-ui, sans-serif;
+}
+.leaflet-popup-tip { background: var(--bg2); }
+.leaflet-popup-content { margin: 10px 14px; font-size: 12px; line-height: 1.5; }
+.popup-name { font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.popup-meta { color: var(--muted2); font-family: monospace; font-size: 11px; }
+.popup-race { color: var(--gold); font-size: 10px; font-weight: 700; margin-top: 3px; }
+
+/* ── Controls ── */
+.controls {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 12px 20px; background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.ctrl-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); flex-shrink: 0; }
+.type-btn {
+  display: flex; align-items: center; gap: 5px;
+  font-family: inherit; font-size: 10px; font-weight: 700;
+  padding: 3px 10px; border-radius: 4px; border: 1px solid;
+  cursor: pointer; transition: opacity 0.15s; background: transparent;
+}
+.type-btn.off { opacity: 0.3; }
+.type-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ctrl-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+
+/* ── Detail panels ── */
+.page { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+.section { padding: 36px 0 0; }
+.section-heading {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.8px; color: var(--muted); margin-bottom: 18px;
+}
+.section-heading::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.section-heading .sh-accent { color: var(--green); }
+
+/* ── Hemisphere cards ── */
+.hemi-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+@media (max-width: 600px) { .hemi-grid { grid-template-columns: repeat(2, 1fr); } }
+.hemi-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px 16px; text-align: center; transition: border-color 0.15s, opacity 0.15s;
+}
+.hemi-card.unlocked {
+  border-color: rgba(16,185,129,0.5);
+  background: rgba(16,185,129,0.06);
+}
+.hemi-card.locked { opacity: 0.35; }
+.hemi-icon { font-size: 32px; margin-bottom: 8px; }
+.hemi-name { font-size: 13px; font-weight: 700; color: var(--text); }
+.hemi-sub  { font-size: 10px; color: var(--muted); margin-top: 3px; }
+.hemi-badge {
+  display: inline-block; margin-top: 8px;
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
+  padding: 2px 8px; border-radius: 10px;
+}
+.hemi-card.unlocked .hemi-badge { background: rgba(16,185,129,0.2); color: var(--green); }
+.hemi-card.locked   .hemi-badge { background: var(--border); color: var(--muted); }
+
+/* ── Continents grid ── */
+.continent-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px;
+}
+.continent-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px 16px; text-align: center; transition: border-color 0.15s, opacity 0.15s;
+}
+.continent-card.unlocked {
+  border-color: rgba(16,185,129,0.5);
+  background: rgba(16,185,129,0.06);
+}
+.continent-card.locked { opacity: 0.35; }
+.continent-icon { font-size: 28px; margin-bottom: 8px; }
+.continent-name { font-size: 12px; font-weight: 700; color: var(--text); }
+.continent-badge {
+  display: inline-block; margin-top: 6px;
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
+  padding: 2px 8px; border-radius: 10px;
+}
+.continent-card.unlocked .continent-badge { background: rgba(16,185,129,0.2); color: var(--green); }
+.continent-card.locked   .continent-badge { background: var(--border); color: var(--muted); }
+
+/* ── Countries grid ── */
+.country-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;
+}
+.country-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; display: flex; align-items: center; gap: 10px;
+  transition: border-color 0.15s;
+}
+.country-card:hover { border-color: rgba(16,185,129,0.4); }
+.country-info { flex: 1; }
+.country-name { font-size: 13px; font-weight: 700; color: var(--text); }
+.country-continent { font-size: 9px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.6px; }
+.country-count-wrap { text-align: right; }
+.country-count {
+  font-size: 20px; font-weight: 700; font-family: 'Atkinson Hyperlegible Mono', monospace;
+  color: var(--green); line-height: 1;
+}
+.country-count-label { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-top: 2px; }
+
+/* ── US States 50-tracker ── */
+.states-tracker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+}
+.state-tile {
+  border-radius: 6px; padding: 7px 10px;
+  font-size: 11px; font-weight: 700; text-align: center;
+  border: 1px solid;
+  transition: border-color 0.15s;
+}
+.state-tile.visited {
+  background: rgba(16,185,129,0.1);
+  border-color: rgba(16,185,129,0.4);
+  color: var(--green);
+}
+.state-tile.unvisited {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+  opacity: 0.4;
+}
+.states-summary {
+  font-size: 11px; color: var(--muted); margin-bottom: 14px;
+}
+.states-summary strong { color: var(--text); }
+
+footer {
+  margin-top: 48px; padding: 16px 24px;
+  border-top: 1px solid var(--border); color: var(--muted); font-size: 10px;
+}
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>🗺️ Activity Map</h1>
+  <span class="subtitle">Garmin &middot; all tracked activities &middot; geographic achievements</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html" class="active">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<!-- ── Achievement bar ── -->
+<div class="achieve-bar" id="achieve-bar">
+  <div class="achieve-stat">
+    <div class="achieve-num" id="stat-total">—</div>
+    <div class="achieve-label">Activities Tracked</div>
+  </div>
+  <div class="achieve-stat">
+    <div class="achieve-num" id="stat-hemispheres">—</div>
+    <div class="achieve-label">Hemispheres</div>
+  </div>
+  <div class="achieve-stat">
+    <div class="achieve-num" id="stat-continents">—</div>
+    <div class="achieve-label">Continents</div>
+  </div>
+  <div class="achieve-stat">
+    <div class="achieve-num" id="stat-countries">—</div>
+    <div class="achieve-label">Countries</div>
+  </div>
+  <div class="achieve-stat">
+    <div class="achieve-num" id="stat-states">—</div>
+    <div class="achieve-label">US States</div>
+  </div>
+</div>
+
+<!-- ── Map ── -->
+<div id="map-wrap">
+  <div id="map"></div>
+</div>
+
+<!-- ── Type filter controls ── -->
+<div class="controls" id="type-controls">
+  <span class="ctrl-label">Show</span>
+</div>
+
+<div class="page">
+
+  <!-- ── Hemispheres ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">🌐</span> Hemispheres</div>
+    <div class="hemi-grid" id="hemi-grid"></div>
+  </div>
+
+  <!-- ── Continents ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">🧭</span> Continents</div>
+    <div class="continent-grid" id="continent-grid"></div>
+  </div>
+
+  <!-- ── Countries ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">🌍</span> Countries</div>
+    <div class="country-grid" id="country-grid"></div>
+  </div>
+
+  <!-- ── US States ── -->
+  <div class="section" style="padding-bottom: 0">
+    <div class="section-heading"><span class="sh-accent">🇺🇸</span> 50-State Tracker</div>
+    <p class="states-summary" id="states-summary"></p>
+    <div class="states-tracker" id="states-tracker"></div>
+  </div>
+
+</div>
+
+<footer>Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a>.</footer>
+
+<script>
+(function () {
+  const D = MAP_DATA;
+  const ach = D.achievements;
+
+  // ── Achievement bar
+  document.getElementById('stat-total').textContent       = ach.total.toLocaleString();
+  document.getElementById('stat-hemispheres').textContent = ach.hemispheres + ' / 4';
+  document.getElementById('stat-continents').textContent  = ach.continents + ' / 6';
+  document.getElementById('stat-countries').textContent   = ach.countries;
+  document.getElementById('stat-states').textContent      = ach.states + ' / 50';
+
+  // ── Hemispheres panel
+  const HEMISPHERES = [
+    { key: 'North', icon: '🔼', sub: 'Latitude > 0°' },
+    { key: 'South', icon: '🔽', sub: 'Latitude < 0°' },
+    { key: 'East',  icon: '▶️',  sub: 'Longitude > 0°' },
+    { key: 'West',  icon: '◀️',  sub: 'Longitude < 0°' },
+  ];
+  const visitedHemis = new Set(D.hemispheres);
+  const hGrid = document.getElementById('hemi-grid');
+  HEMISPHERES.forEach(h => {
+    const unlocked = visitedHemis.has(h.key);
+    hGrid.insertAdjacentHTML('beforeend', `
+      <div class="hemi-card ${unlocked ? 'unlocked' : 'locked'}">
+        <div class="hemi-icon">${h.icon}</div>
+        <div class="hemi-name">${h.key}ern</div>
+        <div class="hemi-sub">${h.sub}</div>
+        <div class="hemi-badge">${unlocked ? 'Unlocked' : 'Locked'}</div>
+      </div>`);
+  });
+
+  // ── Continents panel (all 6, show visited/locked)
+  const ALL_CONTINENTS = [
+    { name: 'North America', icon: '🌎' },
+    { name: 'South America', icon: '🌎' },
+    { name: 'Europe',        icon: '🌍' },
+    { name: 'Africa',        icon: '🌍' },
+    { name: 'Asia',          icon: '🌏' },
+    { name: 'Oceania',       icon: '🌏' },
+  ];
+  const visitedConts = new Set(D.continents);
+  const cgrid = document.getElementById('continent-grid');
+  ALL_CONTINENTS.forEach(c => {
+    const unlocked = visitedConts.has(c.name);
+    cgrid.insertAdjacentHTML('beforeend', `
+      <div class="continent-card ${unlocked ? 'unlocked' : 'locked'}">
+        <div class="continent-icon">${c.icon}</div>
+        <div class="continent-name">${c.name}</div>
+        <div class="continent-badge">${unlocked ? 'Visited' : 'Not yet'}</div>
+      </div>`);
+  });
+
+  // ── Countries panel
+  const cGrid = document.getElementById('country-grid');
+  D.countries.forEach(c => {
+    cGrid.insertAdjacentHTML('beforeend', `
+      <div class="country-card">
+        <div class="country-info">
+          <div class="country-name">${c.name}</div>
+          <div class="country-continent">${c.continent}</div>
+        </div>
+        <div class="country-count-wrap">
+          <div class="country-count">${c.count.toLocaleString()}</div>
+          <div class="country-count-label">activities</div>
+        </div>
+      </div>`);
+  });
+
+  // ── US States 50-tracker
+  const visitedStates = new Set(D.states);
+  const allStates     = D.all_states;
+  const tracker = document.getElementById('states-tracker');
+  const summary = document.getElementById('states-summary');
+  const remaining = 50 - visitedStates.size;
+  summary.innerHTML = `<strong>${visitedStates.size}</strong> of 50 states visited &mdash; <strong>${remaining}</strong> to go`;
+
+  // Sort: visited first, then alphabetical within each group
+  const sorted = [...allStates].sort((a, b) => {
+    const av = visitedStates.has(a) ? 0 : 1;
+    const bv = visitedStates.has(b) ? 0 : 1;
+    if (av !== bv) return av - bv;
+    return a.localeCompare(b);
+  });
+  sorted.forEach(s => {
+    const visited = visitedStates.has(s);
+    tracker.insertAdjacentHTML('beforeend',
+      `<div class="state-tile ${visited ? 'visited' : 'unvisited'}">${s}</div>`);
+  });
+
+  // ── Leaflet map
+  const map = L.map('map', {
+    center: [30.5, -20],
+    zoom: 2,
+    zoomControl: true,
+    attributionControl: true,
+  });
+
+  const TILE_DARK  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  const tileAttrib = '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
+  let tileLayer = L.tileLayer(
+    document.documentElement.getAttribute('data-theme') === 'light' ? TILE_LIGHT : TILE_DARK,
+    { attribution: tileAttrib, subdomains: 'abcd', maxZoom: 19 }
+  ).addTo(map);
+
+  new MutationObserver(() => {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const url = isLight ? TILE_LIGHT : TILE_DARK;
+    map.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(url, { attribution: tileAttrib, subdomains: 'abcd', maxZoom: 19 }).addTo(map);
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ── Layer groups per activity type
+  const layerGroups = D.types.map(() => L.layerGroup().addTo(map));
+  const visibleTypes = new Set(D.types.map((_, i) => i));
+
+  // ── Plot points
+  const TYPE_LABEL = {
+    running: 'Running', road_running: 'Running', treadmill_running: 'Treadmill',
+    track_running: 'Track', trail_running: 'Trail Run', ultra_run: 'Ultra Run',
+    cycling: 'Cycling', indoor_cycling: 'Indoor Cycling',
+    open_water_swimming: 'Open Water Swim', swimming: 'Swimming',
+    golf: 'Golf', hiking: 'Hiking', walking: 'Walking', flying: 'Flying',
+  };
+
+  D.points.forEach(([lat, lon, typeIdx, isRace, miles, dt, name]) => {
+    const color = D.type_colors[typeIdx];
+    const typeName = D.types[typeIdx] || 'other';
+    const r = isRace ? 7 : 4;
+    const weight = isRace ? 2 : 0.5;
+    const opacity = isRace ? 1 : 0.8;
+    const stroke = isRace ? '#ffd700' : color;
+
+    const circle = L.circleMarker([lat, lon], {
+      radius: r,
+      fillColor: color,
+      color: stroke,
+      weight,
+      opacity,
+      fillOpacity: isRace ? 0.95 : 0.7,
+    });
+
+    const typeLabel = TYPE_LABEL[typeName] || typeName;
+    const distStr = miles > 0 ? ` &middot; ${miles} mi` : '';
+    const nameStr = name ? `<div class="popup-name">${name}</div>` : '';
+    const raceTag = isRace ? `<div class="popup-race">&#x2605; Race</div>` : '';
+    circle.bindPopup(
+      `${nameStr}<div class="popup-meta">${dt}${distStr}<br>${typeLabel}</div>${raceTag}`,
+      { maxWidth: 220, autoPan: false }
+    );
+
+    circle.addTo(layerGroups[typeIdx]);
+  });
+
+  // ── Auto-fit to data bounds (continental view)
+  const pts = D.points.filter(([lat]) => lat > 10);
+  if (pts.length) {
+    const lats = pts.map(p => p[0]);
+    const lons = pts.map(p => p[1]);
+    const bounds = L.latLngBounds(
+      [Math.min(...lats), Math.min(...lons)],
+      [Math.max(...lats), Math.max(...lons)]
+    );
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 8 });
+  }
+
+  // ── Type filter controls
+  const ctrl = document.getElementById('type-controls');
+  const PRETTY = {
+    running: 'Running', road_running: 'Road Run', treadmill_running: 'Treadmill',
+    track_running: 'Track', trail_running: 'Trail', ultra_run: 'Ultra',
+    cycling: 'Cycling', indoor_cycling: 'Indoor Bike',
+    open_water_swimming: 'OW Swim', swimming: 'Swim',
+    golf: 'Golf', hiking: 'Hiking', walking: 'Walking', flying: 'Flying',
+  };
+
+  const typeCounts = new Array(D.types.length).fill(0);
+  D.points.forEach(([,, typeIdx]) => typeCounts[typeIdx]++);
+
+  D.types.forEach((typeName, i) => {
+    if (typeCounts[i] === 0) return;
+    const color = D.type_colors[i];
+    const label = PRETTY[typeName] || typeName;
+    const btn = document.createElement('button');
+    btn.className = 'type-btn';
+    btn.style.borderColor = color + '55';
+    btn.style.color = color;
+    btn.innerHTML = `<span class="type-dot" style="background:${color}"></span>${label} <span style="opacity:.5;font-weight:400">${typeCounts[i]}</span>`;
+    btn.dataset.typeIdx = i;
+    btn.addEventListener('click', () => {
+      btn.classList.toggle('off');
+      if (btn.classList.contains('off')) {
+        visibleTypes.delete(i);
+        map.removeLayer(layerGroups[i]);
+      } else {
+        visibleTypes.add(i);
+        layerGroups[i].addTo(map);
+      }
+    });
+    ctrl.appendChild(btn);
+  });
+
+  ctrl.insertAdjacentHTML('beforeend', '<div class="ctrl-sep"></div>');
+  ['All','None'].forEach(label => {
+    const btn = document.createElement('button');
+    btn.className = 'type-btn';
+    btn.style.borderColor = '#1e2d45';
+    btn.style.color = '#94a3b8';
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      const on = label === 'All';
+      document.querySelectorAll('.type-btn[data-type-idx]').forEach(b => {
+        b.classList.toggle('off', !on);
+        const idx = parseInt(b.dataset.typeIdx);
+        if (on) { visibleTypes.add(idx); layerGroups[idx].addTo(map); }
+        else    { visibleTypes.delete(idx); map.removeLayer(layerGroups[idx]); }
+      });
+    });
+    ctrl.appendChild(btn);
+  });
+
+})();
+</script>
+</body>
+</html>

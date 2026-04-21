@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trophy Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="trophy-data.js"></script>
+<style>
+:root {
+  --bg:      #04060e;
+  --bg2:     #090e1c;
+  --bg3:     #0e1628;
+  --border:  #192236;
+  --text:    #e8edf5;
+  --muted:   #4a5a72;
+  --muted2:  #7888a0;
+  --gold:    #ffd700;
+  --gold2:   #ffb300;
+  --gold3:   #e07800;
+  --green:   #10b981;
+  --purple:  #8b5cf6;
+  --pink:    #ec4899;
+  --red:     #ef4444;
+}
+
+body { line-height: 1.5; overflow-x: hidden; }
+
+/* Dot grid background */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+* { position: relative; z-index: 1; }
+
+/* ── Shimmer animation ── */
+@keyframes shimmer {
+  0%   { background-position: -400% center; }
+  100% { background-position:  400% center; }
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 12px rgba(255,215,0,0.15), 0 0 0 1px rgba(255,215,0,0.25); }
+  50%       { box-shadow: 0 0 24px rgba(255,215,0,0.30), 0 0 0 1px rgba(255,215,0,0.45); }
+}
+@keyframes heroFloat {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Nav ── */
+.nav {
+  display: flex; gap: 6px;
+  padding: 10px 28px;
+  background: rgba(4,6,14,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+  flex-wrap: wrap;
+}
+html[data-theme="light"] .nav {
+  background: rgba(240,244,248,0.95);
+}
+.nav a {
+  color: var(--muted2); text-decoration: none; font-size: 11px;
+  padding: 3px 10px; border-radius: 4px; border: 1px solid transparent;
+  transition: all 0.15s;
+}
+.nav a:hover { color: var(--accent); border-color: rgba(0,212,255,0.4); background: rgba(0,212,255,0.06); }
+.nav a.active { color: var(--gold); border-color: rgba(255,215,0,0.4); background: rgba(255,215,0,0.06); }
+
+/* ── Hero ── */
+.hero {
+  padding: 80px 32px 68px;
+  text-align: center;
+  background:
+    radial-gradient(ellipse 100% 70% at 50% -10%, rgba(255,180,0,0.12) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 40% at 20% 80%, rgba(0,212,255,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(139,92,246,0.05) 0%, transparent 60%);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.hero-eyebrow {
+  font-size: 10px; font-weight: 700; letter-spacing: 3px;
+  text-transform: uppercase; color: var(--gold2); margin-bottom: 18px;
+  opacity: 0; animation: fadeUp 0.6s ease 0.1s forwards;
+}
+
+.hero-icon {
+  font-size: 64px; line-height: 1; margin-bottom: 16px; display: block;
+  animation: heroFloat 4s ease-in-out infinite, fadeUp 0.6s ease 0.2s both;
+}
+
+.hero-title {
+  font-size: clamp(48px, 8vw, 88px);
+  font-weight: 700; letter-spacing: -2px; line-height: 1;
+  background: linear-gradient(135deg, #fff9c4 0%, #ffd700 25%, #ffb300 55%, #e07800 80%, #ff6b00 100%);
+  background-size: 300% auto;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 6s linear infinite, fadeUp 0.7s ease 0.3s both;
+  margin-bottom: 18px;
+}
+
+.hero-stats {
+  display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 20px;
+  font-size: 13px; color: var(--muted2);
+  opacity: 0; animation: fadeUp 0.6s ease 0.5s forwards;
+}
+.hero-stats span { color: var(--gold); font-weight: 700; }
+
+/* ── Mega stats ── */
+.mega-stats {
+  display: flex; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+}
+.mega-stat {
+  flex: 1; min-width: 100px;
+  padding: 22px 16px; text-align: center;
+  border-right: 1px solid var(--border);
+}
+.mega-stat:last-child { border-right: none; }
+.mega-num {
+  font-size: 36px; font-weight: 700; line-height: 1;
+  font-family: 'Atkinson Hyperlegible Mono', monospace;
+  background: linear-gradient(135deg, #ffe566, #ffd700, #ffb300);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.mega-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-top: 5px; }
+
+/* ── Section layout ── */
+.page { max-width: 1200px; margin: 0 auto; padding: 0 28px; }
+
+.section { padding: 44px 0 0; }
+
+.section-heading {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.8px; color: var(--muted); margin-bottom: 20px;
+}
+.section-heading::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.section-heading .sh-accent { color: var(--gold2); }
+
+/* ── PR Wall ── */
+.pr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.pr-card {
+  background: linear-gradient(145deg, #0d1525, #080e1c);
+  border: 1px solid rgba(255,215,0,0.22);
+  border-radius: 14px; padding: 20px;
+  position: relative; overflow: hidden;
+  transition: transform 0.2s, border-color 0.2s;
+  animation: pulseGlow 4s ease-in-out infinite;
+}
+html[data-theme="light"] .pr-card {
+  background: linear-gradient(145deg, #fffbeb, #fef9e7);
+}
+.pr-card:nth-child(2) { animation-delay: 0.8s; }
+.pr-card:nth-child(3) { animation-delay: 1.6s; }
+.pr-card:nth-child(4) { animation-delay: 2.4s; }
+.pr-card:nth-child(5) { animation-delay: 3.2s; }
+
+.pr-card:hover { transform: translateY(-3px) scale(1.01); border-color: rgba(255,215,0,0.5); }
+
+.pr-card::before {
+  content: '';
+  position: absolute; top: 0; left: -100%; width: 300%; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), var(--gold2), transparent);
+  animation: shimmer 3s linear infinite;
+}
+
+.pr-dist {
+  font-size: 9px; font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--gold2); margin-bottom: 10px;
+}
+.pr-time {
+  font-size: 30px; font-weight: 700; line-height: 1;
+  font-family: 'Atkinson Hyperlegible Mono', monospace;
+  letter-spacing: -1px; color: var(--text);
+}
+.pr-paces { margin-top: 6px; font-size: 10px; color: var(--muted2); font-family: monospace; }
+.pr-meta { margin-top: 10px; font-size: 10px; color: var(--muted); }
+.pr-meta strong { color: var(--muted2); display: block; }
+
+/* ── Best Splits PRs ── */
+.splits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.split-pr-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.split-pr-card:hover { border-color: rgba(0,212,255,0.35); transform: translateY(-2px); }
+.split-pr-dist {
+  font-size: 9px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
+}
+.split-pr-time {
+  font-size: 22px; font-weight: 700;
+  font-family: 'Atkinson Hyperlegible Mono', monospace;
+  color: var(--text); letter-spacing: -0.5px;
+}
+.split-pr-pace { font-size: 10px; color: var(--muted2); margin-top: 4px; font-family: monospace; }
+.split-pr-meta { font-size: 9px; color: var(--muted); margin-top: 8px; }
+
+/* ── World Majors ── */
+.majors-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}
+@media (max-width: 700px) { .majors-grid { grid-template-columns: repeat(3,1fr); } }
+
+.major-card {
+  border-radius: 12px; padding: 18px 10px 14px;
+  text-align: center; border: 1px solid var(--border);
+  background: var(--bg2); position: relative; overflow: hidden;
+  transition: transform 0.2s;
+}
+.major-card.done {
+  border-color: rgba(255,215,0,0.3);
+  background: linear-gradient(160deg, #0f1c30, #0a1220);
+  animation: pulseGlow 5s ease-in-out infinite;
+}
+html[data-theme="light"] .major-card.done {
+  background: linear-gradient(160deg, #fffbeb, #fef9e7);
+}
+.major-card.done:nth-child(2) { animation-delay: 1s; }
+.major-card.done:nth-child(3) { animation-delay: 2s; }
+.major-card.done:nth-child(4) { animation-delay: 3s; }
+.major-card.done:nth-child(5) { animation-delay: 4s; }
+.major-card.done:hover { transform: translateY(-3px); }
+.major-card.pending { opacity: 0.3; filter: grayscale(0.5); }
+
+.major-card.done::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+.major-medal { font-size: 30px; line-height: 1; margin-bottom: 8px; }
+.major-code {
+  font-size: 14px; font-weight: 700; letter-spacing: 1px;
+  color: var(--gold); font-family: monospace;
+}
+.major-card.pending .major-code { color: var(--muted); }
+.major-city { font-size: 10px; color: var(--muted2); margin-top: 2px; }
+.major-time { margin-top: 8px; font-size: 12px; font-weight: 700; color: var(--text); font-family: monospace; }
+.major-year { font-size: 9px; color: var(--muted); margin-top: 2px; }
+.major-check { position: absolute; top: 8px; right: 9px; font-size: 9px; color: var(--gold); }
+
+/* ── Marathon progression ── */
+.marathon-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 800px) { .marathon-layout { grid-template-columns: 1fr; } }
+
+.chart-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 22px;
+}
+.chart-label { font-size: 11px; color: var(--muted2); margin-bottom: 14px; font-weight: 700; }
+.chart-wrap { position: relative; height: 240px; }
+
+.marathon-list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
+.m-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; border-bottom: 1px solid var(--border);
+  background: var(--bg2); transition: background 0.1s;
+}
+.m-row:last-child { border-bottom: none; }
+.m-row:hover { background: var(--bg3); }
+.m-row.pr { background: linear-gradient(90deg, rgba(255,215,0,0.07), transparent); }
+.m-idx { font-size: 9px; color: var(--muted); width: 18px; text-align: right; flex-shrink: 0; }
+.m-date { font-size: 9px; color: var(--muted); width: 55px; flex-shrink: 0; font-family: monospace; }
+.m-name { flex: 1; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.m-bar-wrap { width: 50px; flex-shrink: 0; }
+.m-bar-track { height: 3px; background: var(--border); border-radius: 2px; }
+.m-bar-fill { height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--gold)); }
+.m-row.pr .m-bar-fill { background: linear-gradient(90deg, var(--gold), #fff9c4); }
+.m-time { font-size: 13px; font-weight: 700; font-family: monospace; color: var(--text); min-width: 68px; text-align: right; }
+.m-row.pr .m-time { color: var(--gold); }
+.m-pace { font-size: 9px; color: var(--muted2); font-family: monospace; min-width: 52px; text-align: right; }
+.pr-badge {
+  font-size: 7px; font-weight: 700; background: var(--gold); color: #000;
+  border-radius: 3px; padding: 1px 4px; flex-shrink: 0; letter-spacing: 0.3px;
+}
+
+/* ── Year in Review ── */
+.year-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
+}
+.year-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+  text-align: center; transition: border-color 0.15s;
+}
+.year-card:hover { border-color: rgba(0,212,255,0.35); }
+.year-label { font-size: 14px; font-weight: 700; color: var(--accent); font-family: monospace; }
+.year-count { font-size: 22px; font-weight: 700; line-height: 1; color: var(--text); margin: 4px 0 2px; }
+.year-sub { font-size: 9px; color: var(--muted); }
+.year-bar-track { height: 3px; background: var(--border); border-radius: 2px; margin-top: 8px; }
+.year-bar-fill { height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--purple)); }
+
+/* ── Milestones ── */
+.milestone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px,1fr)); gap: 12px; }
+.milestone-card {
+  display: flex; gap: 14px; align-items: flex-start;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 18px;
+  transition: border-color 0.2s, transform 0.15s;
+}
+.milestone-card:hover { border-color: rgba(255,215,0,0.3); transform: translateY(-2px); }
+.milestone-icon { font-size: 28px; line-height: 1; flex-shrink: 0; }
+.milestone-title { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+.milestone-detail { font-size: 11px; color: var(--muted2); font-family: monospace; }
+.milestone-sub { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+/* ── All Races Wall ── */
+.race-filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.rft {
+  font-family: inherit; font-size: 11px; font-weight: 700;
+  padding: 5px 12px; border-radius: 5px;
+  border: 1px solid var(--border); background: var(--bg2); color: var(--muted2);
+  cursor: pointer; transition: all 0.15s;
+}
+.rft:hover { color: var(--text); border-color: var(--muted2); }
+.rft.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.07); }
+.rft-count { font-size: 9px; font-weight: 400; margin-left: 4px; opacity: 0.7; }
+
+.year-block { margin-bottom: 28px; }
+.year-block-header {
+  font-size: 28px; font-weight: 700; letter-spacing: -1px;
+  color: var(--border); font-family: monospace;
+  margin-bottom: 10px; line-height: 1;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.year-block-header .yr-count { font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+
+.race-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 10px; }
+.race-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+  transition: border-color 0.15s, transform 0.15s;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.race-card:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-2px); }
+.race-card.hidden { display: none; }
+
+.rc-badge-row { display: flex; align-items: center; gap: 6px; }
+.rc-badge {
+  font-size: 8px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 2px 6px; border-radius: 4px; text-transform: uppercase; flex-shrink: 0;
+}
+.badge-5K    { background: rgba(0,212,255,0.15);  color: var(--accent); }
+.badge-10K   { background: rgba(16,185,129,0.15); color: var(--green); }
+.badge-hm    { background: rgba(139,92,246,0.15); color: var(--purple); }
+.badge-m     { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.badge-ultra { background: rgba(239,68,68,0.15);  color: var(--red); }
+.badge-trail { background: rgba(74,222,128,0.15); color: #4ade80; }
+
+.rc-name {
+  font-size: 12px; font-weight: 700; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  line-height: 1.2;
+}
+.rc-time {
+  font-size: 20px; font-weight: 700; font-family: monospace;
+  letter-spacing: -0.5px; color: var(--text); line-height: 1;
+}
+.rc-meta { font-size: 10px; color: var(--muted2); font-family: monospace; }
+.rc-loc { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-pr-star { color: var(--gold); font-size: 9px; }
+
+/* ── Medal Grid ── */
+.medal-legend {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; font-size: 10px; color: var(--muted2);
+}
+.ml-item { display: flex; align-items: center; gap: 5px; }
+.ml-dot  { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.ml-dot.d-major, .ml-dot.d-pr { background: var(--gold); }
+.ml-dot.d-ultra    { background: var(--red); }
+.ml-dot.d-first    { background: var(--purple); }
+.ml-dot.d-finisher { background: var(--muted); }
+
+.medal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+.medal-tile {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-left: 3px solid; border-radius: 6px;
+  padding: 9px 10px 8px; position: relative;
+  transition: background 0.12s, border-color 0.12s;
+  cursor: default; overflow: hidden;
+}
+.medal-tile:hover { background: var(--bg3); }
+.medal-tile:hover .medal-tooltip { opacity: 1; visibility: visible; }
+.mt-major, .mt-pr  { border-left-color: var(--gold2); }
+.mt-ultra          { border-left-color: var(--red); }
+.mt-first          { border-left-color: var(--purple); }
+.mt-finisher       { border-left-color: var(--border); }
+
+.tile-top  { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+.tile-icon { font-size: 18px; line-height: 1; flex-shrink: 0; }
+.tile-label {
+  font-size: 7px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+  padding: 1px 5px; border-radius: 3px; white-space: nowrap;
+}
+.tl-major, .tl-pr  { background: rgba(255,215,0,0.14); color: var(--gold2); }
+.tl-ultra          { background: rgba(239,68,68,0.14);  color: #f87171; }
+.tl-first          { background: rgba(139,92,246,0.14); color: #c4b5fd; }
+.tl-finisher       { background: rgba(100,116,139,0.14); color: var(--muted2); }
+
+.tile-name { font-size: 10px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 3px; }
+.tile-meta { display: flex; justify-content: space-between; font-size: 9px; font-family: monospace; }
+.tile-time { color: var(--muted2); }
+.tile-year { color: var(--muted); }
+
+.medal-tooltip {
+  position: absolute; inset: 0;
+  background: rgba(6,12,24,0.96); border-radius: 5px;
+  padding: 8px 10px; opacity: 0; visibility: hidden;
+  transition: opacity 0.15s; z-index: 10;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.mt-name   { font-size: 10px; font-weight: 700; color: var(--text); margin-bottom: 3px; line-height: 1.3; }
+.mt-detail { font-size: 9px; color: var(--muted2); font-family: monospace; line-height: 1.5; }
+.mt-type   { font-size: 8px; color: var(--muted); margin-top: 3px; }
+
+/* ── Streak Records ── */
+.streak-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.streak-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 22px; text-align: center; transition: border-color 0.15s;
+}
+.streak-card:hover { border-color: rgba(0,212,255,0.3); }
+.streak-num {
+  font-size: 54px; font-weight: 700; line-height: 1;
+  font-family: 'Atkinson Hyperlegible Mono', monospace;
+}
+.streak-num.streak-active { color: var(--green); }
+.streak-num.streak-best   { color: var(--accent); }
+.streak-unit  { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.streak-label { font-size: 10px; color: var(--muted2); margin-top: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ── Repeat Courses ── */
+.repeat-list { display: flex; flex-direction: column; gap: 12px; }
+.course-block { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.course-hdr {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(14,22,40,0.8), var(--bg2));
+}
+html[data-theme="light"] .course-hdr {
+  background: linear-gradient(90deg, rgba(220,230,245,0.8), var(--bg2));
+}
+.course-hdr-name  { flex: 1; font-size: 13px; font-weight: 700; color: var(--text); }
+.course-hdr-badge {
+  font-size: 8px; font-weight: 700; padding: 2px 8px; border-radius: 10px;
+  background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2); color: var(--accent);
+}
+.course-hdr-imp { font-size: 10px; color: var(--green); font-family: monospace; }
+.course-run-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 16px;
+  border-bottom: 1px solid var(--border); transition: background 0.1s;
+}
+.course-run-row:last-child  { border-bottom: none; }
+.course-run-row:hover       { background: var(--bg3); }
+.course-run-row.is-best     { background: linear-gradient(90deg, rgba(255,215,0,0.05), transparent); }
+.crr-date  { font-size: 9px; color: var(--muted); width: 62px; font-family: monospace; flex-shrink: 0; }
+.crr-time  { font-size: 14px; font-weight: 700; font-family: monospace; color: var(--text); }
+.course-run-row.is-best .crr-time { color: var(--gold); }
+.crr-pace  { font-size: 9px; color: var(--muted2); font-family: monospace; flex: 1; }
+.crr-best  { font-size: 7px; font-weight: 700; background: var(--gold); color: #000; padding: 1px 4px; border-radius: 3px; }
+
+/* ── Monthly Race Calendar ── */
+.month-bar-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 8px; }
+@media (max-width: 700px) { .month-bar-grid { grid-template-columns: repeat(6, 1fr); } }
+.month-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.month-name-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+.month-track { width: 100%; height: 72px; display: flex; align-items: flex-end; justify-content: center; }
+.month-fill { width: 80%; border-radius: 3px 3px 0 0; min-height: 3px; }
+.month-fill.has-races { background: linear-gradient(180deg, var(--gold2), var(--gold3)); }
+.month-fill.no-races  { background: var(--border); }
+.month-count-lbl { font-size: 16px; font-weight: 700; font-family: monospace; }
+.month-count-lbl.has-races { color: var(--text); }
+.month-count-lbl.no-races  { color: var(--muted); font-size: 11px; }
+
+footer {
+  margin-top: 56px; padding: 20px 28px;
+  border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 10px; text-align: center;
+}
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html" class="active">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<!-- ── Hero ── -->
+<div class="hero">
+  <div class="hero-eyebrow">{{ trophy.stats.year_first }} &ndash; {{ trophy.stats.year_last }} &nbsp;&middot;&nbsp; {{ trophy.stats.years_active }} seasons</div>
+  <span class="hero-icon">&#x1F3C6;</span>
+  <div class="hero-title">Trophy Room</div>
+  <div class="hero-stats">
+    <span>{{ trophy.stats.total_races }} races</span>&ensp;&middot;&ensp;
+    <span><span>{{ trophy.stats.total_dist_km | int }}</span> km</span>&ensp;&middot;&ensp;
+    <span><span>{{ trophy.stats.total_time_hrs | int }}</span> hours</span>&ensp;&middot;&ensp;
+    <span><span>{{ trophy.stats.marathons }}</span> marathons</span>&ensp;&middot;&ensp;
+    <span><span>{{ trophy.majors_done }}</span>/6 World Majors</span>
+  </div>
+</div>
+
+<!-- ── Mega Stats ── -->
+<div class="mega-stats">
+  <div class="mega-stat"><div class="mega-num">{{ trophy.stats.total_races }}</div><div class="mega-label">Total Races</div></div>
+  <div class="mega-stat"><div class="mega-num">{{ trophy.stats.marathons }}</div><div class="mega-label">Marathons</div></div>
+  <div class="mega-stat"><div class="mega-num">{{ (trophy.stats.total_dist_km * 0.621371) | int }}</div><div class="mega-label">Miles Raced</div></div>
+  <div class="mega-stat"><div class="mega-num">{{ trophy.stats.total_time_hrs | int }}</div><div class="mega-label">Hours Racing</div></div>
+  <div class="mega-stat"><div class="mega-num">{{ trophy.majors_done }}/6</div><div class="mega-label">World Majors</div></div>
+  <div class="mega-stat"><div class="mega-num">{{ trophy.stats.years_active }}</div><div class="mega-label">Seasons</div></div>
+</div>
+
+<div class="page">
+
+  <!-- ── Medal Collection ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">🏆</span> Medal Collection &mdash; {{ trophy.trophy_shelf | length }} races</div>
+    <div class="medal-legend">
+      <span class="ml-item"><span class="ml-dot d-major"></span> World Major</span>
+      <span class="ml-item"><span class="ml-dot d-pr"></span> PR</span>
+      <span class="ml-item"><span class="ml-dot d-first"></span> First at distance</span>
+      <span class="ml-item"><span class="ml-dot d-ultra"></span> Ultra</span>
+      <span class="ml-item"><span class="ml-dot d-finisher"></span> Finisher</span>
+    </div>
+    <div class="medal-grid">
+      {% for medal in trophy.trophy_shelf %}
+      <div class="medal-tile mt-{{ medal.trophy_type }}">
+        <div class="tile-top">
+          <span class="tile-icon">{{ medal.icon }}</span>
+          <span class="tile-label tl-{{ medal.trophy_type }}">{{ medal.label }}</span>
+        </div>
+        <div class="tile-name" title="{{ medal.name }}">{{ medal.name }}</div>
+        <div class="tile-meta">
+          <span class="tile-time">{{ medal.duration_fmt }}</span>
+          <span class="tile-year">{{ medal.date[:4] }}</span>
+        </div>
+        <div class="medal-tooltip">
+          <div class="mt-name">{{ medal.name }}</div>
+          <div class="mt-detail">{{ medal.date }}<br>{{ medal.duration_fmt }} &middot; {{ medal.pace_mile }}/mi</div>
+          <div class="mt-type">{{ medal.distance_label }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Personal Records ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">&#x2605;</span> Personal Records — Race Finishes</div>
+    <div class="pr-grid">
+      {% for pr in trophy.prs %}
+      <div class="pr-card">
+        <div class="pr-dist">{{ pr.label }}</div>
+        <div class="pr-time mono">{{ pr.dur_fmt }}</div>
+        <div class="pr-paces">{{ pr.pace_km }}/km &nbsp; {{ pr.pace_mile }}/mi</div>
+        <div class="pr-meta"><strong><a href="activity/{{ pr.activity_id }}.html" style="color:inherit;text-decoration:none;">{{ pr.race_name }}</a></strong>{{ pr.date }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Best Splits ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">&#x26A1;</span> All-time Best Splits — fastest segment across every race</div>
+    <div class="splits-grid">
+      {% for sp in trophy.split_prs %}
+      <div class="split-pr-card">
+        <div class="split-pr-dist">Best {{ sp.label }}</div>
+        <div class="split-pr-time">{{ sp.duration_fmt }}</div>
+        <div class="split-pr-pace">{{ sp.pace_km }}/km &nbsp; {{ sp.pace_mile }}/mi</div>
+        <div class="split-pr-meta"><a href="activity/{{ sp.activity_id }}.html" style="color:inherit;text-decoration:none;">{{ sp.race_name }}</a><br>{{ sp.date }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── World Majors ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">&#x1F30D;</span> Abbott World Marathon Majors &mdash; {{ trophy.majors_done }} of 6</div>
+    <div class="majors-grid">
+      {% set medals = ['🥇','🥈','🥉','🏅','🏅','🏅'] %}
+      {% for m in trophy.majors %}
+      <div class="major-card {% if m.done %}done{% else %}pending{% endif %}">
+        {% if m.done %}<span class="major-check">✔</span>{% endif %}
+        <div class="major-medal">{{ medals[loop.index0] }}</div>
+        <div class="major-code">{{ m.code }}</div>
+        <div class="major-city">{{ m.city }}</div>
+        {% if m.race %}
+          <div class="major-time">{{ m.race.dur_fmt }}</div>
+          <div class="major-year">{{ m.race.date[:4] }}</div>
+        {% else %}
+          <div class="major-time" style="color:var(--muted)">—</div>
+          <div class="major-year" style="color:var(--muted)">next</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Marathon Journey ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">&#x1F4C8;</span> Marathon Journey &mdash; {{ trophy.stats.marathons }} finishes, {{ trophy.improvement_fmt }} improved</div>
+    {% if trophy.marathon_prog %}
+    <div class="marathon-layout">
+      <div class="chart-card">
+        <div class="chart-label">Finish time per marathon &mdash; PR in gold</div>
+        <div class="chart-wrap"><canvas id="marathonChart"></canvas></div>
+      </div>
+      <div class="marathon-list">
+        {% set worst_s = trophy.marathon_prog | map(attribute='dur_s') | max %}
+        {% set best_s  = trophy.marathon_prog | map(attribute='dur_s') | min %}
+        {% set spread  = worst_s - best_s %}
+        {% for m in trophy.marathon_prog %}
+        <div class="m-row {% if m.is_pr %}pr{% endif %}">
+          <span class="m-idx">{{ loop.index }}</span>
+          <span class="m-date">{{ m.date[:7] }}</span>
+          <span class="m-name" title="{{ m.name }}">{{ m.name }}</span>
+          <div class="m-bar-wrap">
+            <div class="m-bar-track">
+              <div class="m-bar-fill" style="width:{{ ([(worst_s - m.dur_s), 0] | max / (spread if spread > 0 else 1) * 100) | int }}%"></div>
+            </div>
+          </div>
+          <span class="m-time">{{ m.dur_fmt }}</span>
+          <span class="m-pace">{{ m.pace_mile }}/mi</span>
+          {% if m.is_pr %}<span class="pr-badge">PR</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Milestones ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">&#x1F3AF;</span> Milestones</div>
+    <div class="milestone-grid">
+      {% for ms in trophy.milestones %}
+      <div class="milestone-card">
+        <div class="milestone-icon">{{ ms.icon }}</div>
+        <div>
+          <div class="milestone-title">{{ ms.title }}</div>
+          <div class="milestone-detail">{{ ms.detail }}</div>
+          <div class="milestone-sub">{{ ms.sub }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Streak Records ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">🔥</span> Streak Records</div>
+    <div class="streak-grid">
+      <div class="streak-card">
+        <div class="streak-num streak-active">{{ trophy.streaks.current_day }}</div>
+        <div class="streak-unit">days</div>
+        <div class="streak-label">Current Day Streak</div>
+      </div>
+      <div class="streak-card">
+        <div class="streak-num streak-best">{{ trophy.streaks.longest_day }}</div>
+        <div class="streak-unit">days</div>
+        <div class="streak-label">Longest Day Streak</div>
+      </div>
+      <div class="streak-card">
+        <div class="streak-num streak-active">{{ trophy.streaks.current_week }}</div>
+        <div class="streak-unit">weeks</div>
+        <div class="streak-label">Current Week Streak</div>
+      </div>
+      <div class="streak-card">
+        <div class="streak-num streak-best">{{ trophy.streaks.longest_week }}</div>
+        <div class="streak-unit">weeks</div>
+        <div class="streak-label">Longest Week Streak</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Repeat Courses ── -->
+  {% if trophy.repeat_courses %}
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">🔁</span> Repeat Courses &mdash; {{ trophy.repeat_courses | length }} venues revisited</div>
+    <div class="repeat-list">
+      {% for course in trophy.repeat_courses %}
+      <div class="course-block">
+        <div class="course-hdr">
+          <div class="course-hdr-name">{{ course.name }}</div>
+          <div class="course-hdr-badge">{{ course.count }}x &middot; {{ course.distance_label }}</div>
+          {% if course.improvement_fmt %}
+          <div class="course-hdr-imp">&#x2193; {{ course.improvement_fmt }} improved</div>
+          {% endif %}
+        </div>
+        {% for ap in course.appearances %}
+        <a class="course-run-row {% if ap.is_best %}is-best{% endif %}" href="activity/{{ ap.activity_id }}.html" style="text-decoration:none;display:flex;">
+          <span class="crr-date">{{ ap.date }}</span>
+          <span class="crr-time">{{ ap.duration_fmt }}</span>
+          <span class="crr-pace">{{ ap.pace_mile }}/mi</span>
+          {% if ap.is_best %}<span class="crr-best">BEST</span>{% endif %}
+        </a>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Monthly Race Calendar ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">📅</span> Races by Month &mdash; all-time</div>
+    <div class="month-bar-grid">
+      {% for m in trophy.monthly_calendar %}
+      <div class="month-col">
+        <div class="month-name-lbl">{{ m.name }}</div>
+        <div class="month-track">
+          <div class="month-fill {% if m.count > 0 %}has-races{% else %}no-races{% endif %}"
+               style="height: {{ [m.pct, 5] | max }}%"></div>
+        </div>
+        <div class="month-count-lbl {% if m.count > 0 %}has-races{% else %}no-races{% endif %}">{{ m.count }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Year in Review ── -->
+  <div class="section">
+    <div class="section-heading"><span class="sh-accent">&#x1F4C5;</span> By Season</div>
+    <div class="year-grid">
+      {% for ys in trophy.year_stats %}
+      <div class="year-card">
+        <div class="year-label">{{ ys.year }}</div>
+        <div class="year-count">{{ ys.count }}</div>
+        <div class="year-sub">{{ ys.km }} km</div>
+        <div class="year-bar-track"><div class="year-bar-fill" style="width:{{ ys.bar_pct }}%"></div></div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── All Races Wall ── -->
+  <div class="section" style="padding-bottom:0">
+    <div class="section-heading"><span class="sh-accent">&#x1F4CB;</span> All {{ races | length }} Races</div>
+
+    {# compute counts per category for filter buttons #}
+    {% set cat_defs = [
+      ('All',           none),
+      ('Marathon',      ['Marathon','~Marathon']),
+      ('Half Marathon', ['Half Marathon','~HM']),
+      ('10K',           ['10K','~10K']),
+      ('5K',            ['5K']),
+      ('Trail / Ultra', ['~10K','50K','Ultra']),
+    ] %}
+
+    <div class="race-filter-tabs" id="race-tabs">
+      {% for cat_name, cat_lbls in cat_defs %}
+        {% if cat_lbls is none %}
+          {% set cnt = races | length %}
+        {% else %}
+          {% set cnt = races | selectattr('distance_label', 'in', cat_lbls) | list | length %}
+        {% endif %}
+        <button class="rft {% if loop.first %}active{% endif %}"
+                data-cat="{{ cat_name }}"
+                data-labels="{{ (cat_lbls | join(',')) if cat_lbls else 'ALL' }}">
+          {{ cat_name }}<span class="rft-count">{{ cnt }}</span>
+        </button>
+      {% endfor %}
+    </div>
+
+    <div id="race-wall">
+      {% set ns = namespace(cur_year='') %}
+      {% for r in races | sort(attribute='date') | reverse %}
+        {% if r.year != ns.cur_year %}
+          {% set ns.cur_year = r.year %}
+          {# Count races in this year #}
+          {% set yr_races = races | selectattr('year', 'equalto', r.year) | list %}
+          <div class="year-block" data-year="{{ r.year }}">
+            <div class="year-block-header">
+              {{ r.year }}
+              <span class="yr-count">{{ yr_races | length }} race{{ 's' if yr_races | length != 1 }}</span>
+            </div>
+            <div class="race-cards" id="cards-{{ r.year }}">
+        {% endif %}
+
+        {% set is_trail = r.activity_type_key in ['trail_running','ultra_run'] %}
+        <div class="race-card" data-dist-label="{{ r.distance_label }}" data-trail="{{ 'yes' if is_trail else 'no' }}">
+          <div class="rc-badge-row">
+            {% if is_trail %}
+              <span class="rc-badge badge-trail">Trail</span>
+            {% endif %}
+            {% if r.distance_label in ['5K'] %}
+              <span class="rc-badge badge-5K">5K</span>
+            {% elif r.distance_label in ['10K','~10K'] %}
+              <span class="rc-badge badge-10K">10K</span>
+            {% elif 'Half' in r.distance_label or r.distance_label == '~HM' %}
+              <span class="rc-badge badge-hm">Half</span>
+            {% elif r.distance_label in ['Marathon','~Marathon'] %}
+              <span class="rc-badge badge-m">Marathon</span>
+            {% elif r.distance_label in ['50K','Ultra'] %}
+              <span class="rc-badge badge-ultra">Ultra</span>
+            {% endif %}
+            {% if r.pr %}<span class="rc-pr-star">&#x2605; PR</span>{% endif %}
+          </div>
+          <div class="rc-name" title="{{ r.activity_name }}">{{ r.activity_name }}</div>
+          <div class="rc-time">{{ r.duration_fmt }}</div>
+          <div class="rc-meta">{{ r.dist_km_fmt }} km &nbsp;&middot;&nbsp; {{ r.pace_mile }}/mi</div>
+          {% if r.location_name %}<div class="rc-loc">{{ r.location_name }}</div>{% endif %}
+        </div>
+
+        {# close year block div.race-cards and div.year-block when year changes #}
+        {% if loop.last or (races | sort(attribute='date') | reverse | list)[loop.index].year != r.year %}
+            </div>{# race-cards #}
+          </div>{# year-block #}
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+</div>{# .page #}
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+<script>
+// ── Marathon bar chart ─────────────────────────────────
+(function() {
+  const prog = TROPHY_DATA.marathon_prog;
+  const labels = prog.map(r => r.date.slice(0,7));
+  const durMin = prog.map(r => r.dur_s / 60);
+  function fmtTime(totalMin) {
+    const s = Math.round(totalMin * 60);
+    return `${Math.floor(s/3600)}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  }
+  const bg  = prog.map(r => r.is_pr ? 'rgba(255,215,0,0.85)' : 'rgba(0,180,220,0.55)');
+  const bdr = prog.map(r => r.is_pr ? '#ffb300' : 'rgba(0,212,255,0.8)');
+  new Chart(document.getElementById('marathonChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: durMin, backgroundColor: bg, borderColor: bdr, borderWidth: 1.5, borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0a1220', borderColor: '#192236', borderWidth: 1,
+          titleColor: '#7888a0', bodyColor: '#e8edf5',
+          callbacks: {
+            title: items => prog[items[0].dataIndex].name,
+            label: item => '  ' + fmtTime(item.raw),
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#4a5a72', font: { size: 9 }, maxRotation: 45 }, grid: { color: 'rgba(255,255,255,0.03)' } },
+        y: {
+          reverse: true,
+          min: Math.min(...durMin) * 0.97,
+          max: Math.max(...durMin) * 1.01,
+          ticks: { color: '#4a5a72', font: { family: 'monospace', size: 9 }, callback: v => fmtTime(v), maxTicksLimit: 6 },
+          grid: { color: 'rgba(255,255,255,0.03)' }
+        }
+      }
+    }
+  });
+})();
+
+// ── Race wall filter ───────────────────────────────────
+document.getElementById('race-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.rft');
+  if (!btn) return;
+  document.querySelectorAll('.rft').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const labelsRaw = btn.dataset.labels;
+  const cats = labelsRaw === 'ALL' ? null : labelsRaw.split(',');
+  const trailOnly = btn.dataset.cat === 'Trail / Ultra';
+
+  document.querySelectorAll('.race-card').forEach(card => {
+    const lbl   = card.dataset.distLabel;
+    const trail = card.dataset.trail === 'yes';
+    let show;
+    if (!cats) {
+      show = true;
+    } else if (trailOnly) {
+      show = trail;
+    } else {
+      show = cats.includes(lbl);
+    }
+    card.classList.toggle('hidden', !show);
+  });
+
+  // Hide year blocks with no visible cards
+  document.querySelectorAll('.year-block').forEach(block => {
+    const anyVisible = Array.from(block.querySelectorAll('.race-card')).some(c => !c.classList.contains('hidden'));
+    block.style.display = anyVisible ? '' : 'none';
+  });
+});
+</script>
+</body>
+</html>

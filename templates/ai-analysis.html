@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<style>
+  body { font-size: 14px; line-height: 1.6; }
+
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 32px 24px 60px;
+  }
+
+  .meta-bar {
+    display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 28px; padding: 10px 14px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+    font-size: 11px; color: var(--muted2);
+  }
+  .meta-bar .label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-size: 9px; }
+  .meta-bar strong { color: var(--accent3); }
+
+  /* ── Markdown rendering ── */
+  .analysis-body h2 {
+    font-size: 18px; font-weight: 700; color: var(--accent);
+    margin: 36px 0 14px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.2px;
+  }
+  .analysis-body h2:first-child { margin-top: 0; }
+  .analysis-body h3 {
+    font-size: 14px; font-weight: 700; color: var(--accent4);
+    margin: 20px 0 8px;
+  }
+  .analysis-body p {
+    margin-bottom: 14px; color: var(--text); line-height: 1.75;
+  }
+  .analysis-body ul, .analysis-body ol {
+    margin: 0 0 14px 20px; color: var(--text);
+  }
+  .analysis-body li { margin-bottom: 5px; line-height: 1.65; }
+  .analysis-body strong { color: var(--accent4); font-weight: 700; }
+  .analysis-body em { color: var(--muted2); font-style: italic; }
+  .analysis-body code {
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    font-size: 12px; color: var(--accent3);
+    background: rgba(16,185,129,0.08); padding: 1px 5px; border-radius: 3px;
+  }
+  .analysis-body blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 8px 16px; margin: 16px 0;
+    background: rgba(0,212,255,0.04);
+    border-radius: 0 6px 6px 0;
+    color: var(--muted2);
+  }
+  .analysis-body hr {
+    border: none; border-top: 1px solid var(--border); margin: 28px 0;
+  }
+
+  .no-analysis {
+    padding: 40px 20px; text-align: center; color: var(--muted);
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .no-analysis code {
+    display: block; margin-top: 14px; font-family: monospace;
+    font-size: 12px; color: var(--accent3);
+    background: var(--bg3); padding: 10px 16px; border-radius: 5px;
+    text-align: left; white-space: pre;
+  }
+
+  footer {
+    margin-top: 40px; padding: 16px 24px;
+    border-top: 1px solid var(--border); color: var(--muted); font-size: 10px;
+    max-width: 860px; margin-left: auto; margin-right: auto;
+  }
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F916; AI Analysis</h1>
+  <span class="subtitle">Garmin &middot; {{ races|length }} races &middot; narrative insights</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html" class="active">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+{% if ai.content %}
+<div class="meta-bar">
+  <span><span class="label">Model</span> &nbsp;<strong>{{ ai.model }}</strong></span>
+  <span><span class="label">Generated</span> &nbsp;{{ ai.generated_at }}</span>
+  <span><span class="label">Races analyzed</span> &nbsp;{{ ai.race_count }}</span>
+  <span style="color:var(--muted);font-size:10px">Delete <code style="font-size:10px;color:var(--accent3)">ai-analysis-cache.json</code> and rebuild to refresh</span>
+</div>
+<div class="analysis-body" id="analysis-body"></div>
+{% else %}
+<div class="no-analysis">
+  <p>No AI analysis generated yet.</p>
+  <p style="margin-top:8px;font-size:12px">Make sure Ollama is running and rebuild:</p>
+  <code>ollama serve
+ollama pull {{ ai.model }}
+python generate.py</code>
+</div>
+{% endif %}
+
+</main>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+{% if ai.content %}
+<script>
+const raw = {{ ai.content | tojson_safe }};
+document.getElementById('analysis-body').innerHTML = marked.parse(raw);
+</script>
+{% endif %}
+
+</body>
+</html>

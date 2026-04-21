@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Per-Mile Splits</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="mile-splits-data.js"></script>
+<style>
+  :root { --pr-gold: #fbbf24; }
+  .mono { font-family: 'Atkinson Hyperlegible Mono', 'Fira Mono', monospace; }
+
+  main { padding: 20px 24px; max-width: 1600px; }
+
+  /* ── Category tabs ── */
+  .cat-tabs { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; align-items: center; }
+  .cat-tab {
+    font-family: inherit; font-size: 11px; font-weight: 700;
+    padding: 5px 14px; border-radius: 5px;
+    border: 1px solid var(--border); background: var(--bg2); color: var(--muted2);
+    cursor: pointer; letter-spacing: 0.3px; transition: all 0.15s;
+  }
+  .cat-tab:hover { border-color: var(--muted2); color: var(--text); }
+  .cat-tab.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
+  .cat-count {
+    display: inline-block; font-size: 9px; font-weight: 400;
+    background: rgba(255,255,255,0.08); border-radius: 3px;
+    padding: 0 4px; margin-left: 4px; vertical-align: middle;
+  }
+
+  /* ── Chart ── */
+  .section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--muted); margin-bottom: 10px; padding-left: 2px;
+  }
+  .chart-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 24px;
+  }
+  .chart-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; flex-wrap: wrap; gap: 8px;
+  }
+  .chart-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .chart-hint  { font-size: 10px; color: var(--muted); }
+  .chart-wrap  { position: relative; height: 380px; }
+
+  .legend-wrap {
+    display: flex; flex-wrap: wrap; gap: 6px 14px;
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px; cursor: pointer;
+    opacity: 1; transition: opacity 0.15s; font-size: 10px; color: var(--muted2); user-select: none;
+  }
+  .legend-item.hidden { opacity: 0.3; }
+  .legend-swatch { width: 22px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+
+  /* ── Heatmap table ── */
+  .table-outer { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 32px; }
+  table { border-collapse: collapse; font-size: 11px; }
+  thead th {
+    background: var(--bg3); color: var(--muted); font-size: 9.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 7px 8px; text-align: center; border-bottom: 1px solid var(--border);
+    white-space: nowrap; position: sticky; top: 0; z-index: 2;
+  }
+  thead th.left { text-align: left; }
+  thead th.right { text-align: right; }
+
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover td { filter: brightness(1.08); }
+
+  /* sticky race name column */
+  td.race-name-cell {
+    position: sticky; left: 0; background: var(--bg2); z-index: 1;
+    padding: 5px 10px 5px 8px; white-space: nowrap;
+    border-right: 1px solid var(--border); min-width: 180px; max-width: 220px;
+  }
+  tbody tr:hover td.race-name-cell { background: #141f35; }
+
+  td.race-dot-cell {
+    position: sticky; left: 0;
+  }
+  .race-dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; margin-right: 5px; vertical-align: middle; flex-shrink: 0;
+  }
+  .race-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+  .race-date-text { font-size: 9px; color: var(--muted); display: block; margin-top: 1px; }
+
+  /* summary stat cells */
+  td.stat-cell {
+    padding: 5px 10px; text-align: right; white-space: nowrap;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 10.5px;
+    border-left: 1px solid var(--border);
+  }
+  td.stat-cell.pos  { color: var(--accent5); }
+  td.stat-cell.neg  { color: var(--accent3); }
+  td.stat-cell.even { color: var(--muted2); }
+
+  /* mile split cells */
+  td.mile-cell {
+    padding: 4px 6px; text-align: center; white-space: nowrap;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 10px;
+    min-width: 46px; border-left: 1px solid rgba(30,45,69,0.4);
+    transition: filter 0.1s;
+  }
+  td.mile-cell.empty { color: var(--muted); background: transparent !important; }
+
+  /* half-split divider */
+  td.half-divider { border-left: 2px solid rgba(0,212,255,0.25) !important; }
+
+  /* highlight: fastest mile in each race row */
+  td.best-mile { font-weight: 700; }
+
+  footer {
+    margin-top: 40px; padding: 16px 24px;
+    border-top: 1px solid var(--border); color: var(--muted); font-size: 10px;
+  }
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F4CA; Per-Mile Splits</h1>
+  <span class="subtitle">Garmin &middot; {{ races|length }} races &middot; mile-by-mile pace comparison</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html" class="active">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+<!-- ── Category tabs ── -->
+<div class="cat-tabs" id="cat-tabs">
+  {% for cat_name, cat_labels in analysis_categories %}
+  <button class="cat-tab {% if loop.first %}active{% endif %}"
+          data-cat="{{ cat_name }}"
+          data-labels="{{ (cat_labels | join(',')) if cat_labels else 'ALL' }}">
+    {{ cat_name }}<span class="cat-count" id="cnt-{{ loop.index }}"></span>
+  </button>
+  {% endfor %}
+</div>
+
+<!-- ── Pace-per-mile chart ── -->
+<div class="section-title">Pace Per Mile — Overlay</div>
+<div class="chart-card">
+  <div class="chart-header">
+    <span class="chart-title" id="chart-title">Marathon — per-mile pace</span>
+    <span class="chart-hint">Click legend to toggle races &middot; Y-axis: faster up</span>
+  </div>
+  <div class="chart-wrap"><canvas id="milesChart"></canvas></div>
+  <div class="legend-wrap" id="chart-legend"></div>
+</div>
+
+<!-- ── Heatmap table ── -->
+<div class="section-title" id="table-title">Split Heatmap — Pace per Mile</div>
+<div class="table-outer">
+  <table id="heatmap-table">
+    <thead id="heatmap-head"></thead>
+    <tbody id="heatmap-body"></tbody>
+  </table>
+</div>
+
+</main>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+<script>
+const ALL_RACES = MILE_SPLITS_DATA;
+
+function secToMMSS(sec) {
+  const s = Math.round(sec);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+// ── Chart setup ────────────────────────────────────────────────────
+const ctx = document.getElementById('milesChart').getContext('2d');
+const milesChart = new Chart(ctx, {
+  type: 'line',
+  data: { datasets: [] },
+  options: {
+    animation: { duration: 200 },
+    responsive: true,
+    maintainAspectRatio: false,
+    parsing: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#0f1c30',
+        borderColor: '#1e2d45', borderWidth: 1,
+        titleColor: '#94a3b8', bodyColor: '#e2e8f0',
+        titleFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
+        bodyFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 11 },
+        callbacks: {
+          title: items => `Mile ${items[0].parsed.x}`,
+          label: item => ` ${item.dataset.label}: ${secToMMSS(item.parsed.y)}/mi`,
+        },
+        itemSort: (a, b) => a.parsed.y - b.parsed.y,
+      },
+    },
+    scales: {
+      x: {
+        type: 'linear',
+        title: { display: true, text: 'Mile', color: '#64748b', font: { size: 10 } },
+        ticks: { color: '#64748b', font: { size: 10 }, stepSize: 1, maxTicksLimit: 30 },
+        grid:  { color: 'rgba(255,255,255,0.04)' },
+      },
+      y: {
+        reverse: true,
+        title: { display: true, text: 'Pace / mile', color: '#64748b', font: { size: 10 } },
+        ticks: {
+          color: '#64748b',
+          font: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
+          callback: v => secToMMSS(v),
+          maxTicksLimit: 8,
+        },
+        grid: { color: 'rgba(255,255,255,0.04)' },
+      },
+    },
+  },
+});
+
+function buildLegend(datasets) {
+  const wrap = document.getElementById('chart-legend');
+  wrap.innerHTML = '';
+  datasets.forEach((ds, i) => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.dataset.idx = i;
+    item.innerHTML =
+      `<span class="legend-swatch" style="background:${ds.borderColor}"></span>` +
+      `<span>${ds.label}</span>`;
+    item.addEventListener('click', () => {
+      const meta = milesChart.getDatasetMeta(i);
+      meta.hidden = !meta.hidden;
+      item.classList.toggle('hidden', meta.hidden);
+      milesChart.update();
+    });
+    wrap.appendChild(item);
+  });
+}
+
+// ── Heatmap coloring ──────────────────────────────────────────────
+function deviationBg(splitS, avgS) {
+  if (!avgS || !splitS) return 'transparent';
+  const dev = (splitS - avgS) / avgS;  // positive = slower
+  const t = Math.max(-1, Math.min(1, dev / 0.12));
+  if (t < 0) {
+    const alpha = Math.abs(t) * 0.55;
+    return `rgba(16, 185, 129, ${alpha.toFixed(2)})`;   // green = faster
+  } else {
+    const alpha = t * 0.55;
+    return `rgba(239, 68, 68, ${alpha.toFixed(2)})`;    // red = slower
+  }
+}
+
+// ── Main render ───────────────────────────────────────────────────
+function applyCategory(catName, catLabels) {
+  const filtered = catLabels
+    ? ALL_RACES.filter(r => catLabels.includes(r.dist_label))
+    : ALL_RACES;
+
+  document.getElementById('chart-title').textContent =
+    catName === 'All'
+      ? `All races — per-mile pace (${filtered.length})`
+      : `${catName} — per-mile pace (${filtered.length} races)`;
+
+  // ── Chart
+  const datasets = filtered.map(r => ({
+    label:            `${r.name} (${r.date})`,
+    data:             r.splits.map(s => ({ x: s.mile, y: s.split_s })),
+    borderColor:      r.color,
+    backgroundColor:  r.color + '18',
+    borderWidth:      1.8,
+    pointRadius:      2,
+    pointHoverRadius: 5,
+    tension:          0.2,
+    fill:             false,
+  }));
+  milesChart.data.datasets = datasets;
+  milesChart.update();
+  buildLegend(datasets);
+
+  // ── Heatmap table
+  if (filtered.length === 0) {
+    document.getElementById('heatmap-head').innerHTML = '';
+    document.getElementById('heatmap-body').innerHTML =
+      '<tr><td style="padding:20px;color:var(--muted)">No races in this category.</td></tr>';
+    return;
+  }
+
+  const maxMiles = Math.max(...filtered.map(r => r.splits.length));
+  const halfMile = Math.ceil(maxMiles / 2);  // boundary for first/second half
+
+  // Build quick lookup: race.id → map of mile → split_s
+  const splitMap = {};
+  filtered.forEach(r => {
+    splitMap[r.id] = {};
+    r.splits.forEach(s => { splitMap[r.id][s.mile] = s; });
+  });
+
+  // Header
+  const head = document.getElementById('heatmap-head');
+  let headHtml = '<tr><th class="left" style="position:sticky;left:0;z-index:3;background:var(--bg3)">Race</th>';
+  headHtml += '<th class="right">Total</th><th class="right">Avg /mi</th>';
+  headHtml += '<th class="right" style="border-left:1px solid var(--border)">1H avg</th>';
+  headHtml += '<th class="right">2H avg</th>';
+  headHtml += '<th class="right" style="border-left:1px solid var(--border)">Split</th>';
+  for (let m = 1; m <= maxMiles; m++) {
+    const isHalf = m === halfMile + 1;
+    headHtml += `<th${isHalf ? ' class="half-divider"' : ''}>M${m}</th>`;
+  }
+  headHtml += '</tr>';
+  head.innerHTML = headHtml;
+
+  // Body
+  const body = document.getElementById('heatmap-body');
+  let bodyHtml = '';
+
+  filtered.forEach(r => {
+    const splits = r.splits;
+    if (!splits.length) return;
+
+    const avgS = splits.reduce((s, x) => s + x.split_s, 0) / splits.length;
+    const bestS = Math.min(...splits.map(x => x.split_s));
+
+    // Half splits
+    const firstHalf = splits.filter(s => s.mile <= halfMile);
+    const secondHalf = splits.filter(s => s.mile > halfMile);
+    const h1avg = firstHalf.length ? firstHalf.reduce((s,x) => s+x.split_s,0)/firstHalf.length : null;
+    const h2avg = secondHalf.length ? secondHalf.reduce((s,x) => s+x.split_s,0)/secondHalf.length : null;
+    const splitDiff = (h1avg && h2avg) ? (h2avg - h1avg) : null;
+    const splitClass = splitDiff === null ? 'even'
+      : splitDiff > 5 ? 'pos'    // positive split (slowed down)
+      : splitDiff < -5 ? 'neg'   // negative split (sped up)
+      : 'even';
+    const splitStr = splitDiff === null ? '—'
+      : (splitDiff >= 0 ? '+' : '') + secToMMSS(Math.abs(splitDiff));
+
+    bodyHtml += `<tr>
+      <td class="race-name-cell">
+        <span class="race-dot" style="background:${r.color}"></span>
+        <span class="race-name-text" title="${r.name}">${r.name}</span>
+        <span class="race-date-text">${r.date}</span>
+      </td>
+      <td class="stat-cell mono">${r.duration_fmt}</td>
+      <td class="stat-cell mono">${r.pace_mile}/mi</td>
+      <td class="stat-cell mono" style="border-left:1px solid var(--border)">${h1avg ? secToMMSS(h1avg) : '—'}</td>
+      <td class="stat-cell mono">${h2avg ? secToMMSS(h2avg) : '—'}</td>
+      <td class="stat-cell ${splitClass}" style="border-left:1px solid var(--border)">${splitStr}</td>`;
+
+    for (let m = 1; m <= maxMiles; m++) {
+      const sp = splitMap[r.id][m];
+      const isHalf = m === halfMile + 1;
+      const divider = isHalf ? ' half-divider' : '';
+      if (!sp) {
+        bodyHtml += `<td class="mile-cell empty${divider}">—</td>`;
+      } else {
+        const bg = deviationBg(sp.split_s, avgS);
+        const isBest = sp.split_s === bestS;
+        bodyHtml += `<td class="mile-cell${divider}${isBest ? ' best-mile' : ''}" style="background:${bg}" title="Mile ${m}: ${sp.pace_fmt}/mi">${sp.pace_fmt}</td>`;
+      }
+    }
+
+    bodyHtml += '</tr>';
+  });
+
+  body.innerHTML = bodyHtml;
+}
+
+// ── Tab click handler ─────────────────────────────────────────────
+document.getElementById('cat-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.cat-tab');
+  if (!btn) return;
+  document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const catName   = btn.dataset.cat;
+  const labelsRaw = btn.dataset.labels;
+  const catLabels = labelsRaw === 'ALL' ? null : labelsRaw.split(',');
+  applyCategory(catName, catLabels);
+});
+
+// ── Populate tab counts ──────────────────────────────────────────
+document.querySelectorAll('.cat-tab').forEach(btn => {
+  const labelsRaw = btn.dataset.labels;
+  const catLabels = labelsRaw === 'ALL' ? null : labelsRaw.split(',');
+  const count = catLabels
+    ? ALL_RACES.filter(r => catLabels.includes(r.dist_label)).length
+    : ALL_RACES.length;
+  btn.querySelector('.cat-count').textContent = count;
+});
+
+// ── Init ─────────────────────────────────────────────────────────
+(function init() {
+  const first = document.querySelector('.cat-tab.active');
+  const labelsRaw = first.dataset.labels;
+  const catLabels = labelsRaw === 'ALL' ? null : labelsRaw.split(',');
+  applyCategory(first.dataset.cat, catLabels);
+})();
+</script>
+</body>
+</html>

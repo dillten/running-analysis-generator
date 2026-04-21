@@ -1,0 +1,80 @@
+:root {
+  --bg:      #0a0e1a;
+  --bg2:     #111827;
+  --bg3:     #1a2235;
+  --border:  #1e2d45;
+  --accent:  #00d4ff;
+  --accent3: #10b981;
+  --accent4: #f59e0b;
+  --accent5: #ef4444;
+  --text:    #e2e8f0;
+  --muted:   #64748b;
+  --muted2:  #94a3b8;
+}
+html[data-theme="light"] {
+  --bg:      #f0f4f8;
+  --bg2:     #ffffff;
+  --bg3:     #e8eef5;
+  --border:  #d1dce8;
+  --accent:  #0284c7;
+  --accent3: #059669;
+  --accent4: #d97706;
+  --accent5: #dc2626;
+  --text:    #0f172a;
+  --muted:   #64748b;
+  --muted2:  #475569;
+}
+html[data-theme="light"] header {
+  background: linear-gradient(135deg, #e8f0fe 0%, #f0e8fe 100%);
+}
+html[data-theme="light"] .nav a:hover,
+html[data-theme="light"] .nav a.active {
+  background: rgba(2,132,199,0.08);
+}
+html[data-theme="light"] .theme-toggle:hover {
+  background: rgba(2,132,199,0.08);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.mono { font-family: 'Atkinson Hyperlegible Mono', monospace; }
+header {
+  background: linear-gradient(135deg, #0d1b2e 0%, #1a0a2e 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 18px 24px 14px;
+  display: flex; align-items: baseline; gap: 16px;
+}
+header h1 { font-size: 22px; font-weight: 700; color: var(--accent); letter-spacing: -0.3px; }
+header .subtitle { color: var(--muted2); font-size: 12px; }
+.nav {
+  display: flex; gap: 6px; padding: 10px 24px;
+  background: var(--bg2); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.nav a {
+  color: var(--muted2); text-decoration: none; font-size: 11px;
+  padding: 3px 9px; border-radius: 4px; border: 1px solid transparent; transition: all 0.15s;
+}
+.nav a:hover, .nav a.active {
+  color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.06);
+}
+.theme-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted2);
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.theme-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}

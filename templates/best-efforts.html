@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Best Efforts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="best-efforts-data.js"></script>
+<style>
+  main { padding: 20px 28px; max-width: 1200px; }
+
+  /* Distance selector */
+  .dist-bar {
+    display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .dist-btn {
+    font-size: 12px; font-weight: 700; padding: 5px 14px;
+    border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg2); color: var(--muted2);
+    cursor: pointer; transition: all 0.12s;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .dist-btn:hover { color: var(--text); border-color: var(--muted); }
+  .dist-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+
+  /* Summary bar for selected distance */
+  .summary-bar {
+    display: flex; gap: 24px; padding: 10px 16px; margin-bottom: 16px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+    font-size: 11px; flex-wrap: wrap;
+  }
+  .summary-bar .s-item { display: flex; flex-direction: column; gap: 2px; }
+  .summary-bar .s-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+  .summary-bar .s-val { font-family: 'Atkinson Hyperlegible Mono', monospace; color: var(--accent); font-size: 13px; font-weight: 700; }
+  .summary-bar .s-val.green { color: var(--accent3); }
+  .summary-bar .s-val.amber { color: var(--accent4); }
+
+  /* Main table */
+  .table-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    background: var(--bg3); color: var(--muted); font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--border);
+    white-space: nowrap; cursor: pointer; user-select: none;
+  }
+  thead th:first-child, thead th:nth-child(4), thead th:nth-child(5) { text-align: left; }
+  thead th:hover { color: var(--text); }
+  thead th.sort-asc::after  { content: ' ↑'; color: var(--accent); }
+  thead th.sort-desc::after { content: ' ↓'; color: var(--accent); }
+
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.08s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  tbody tr.is-race { background: rgba(245,158,11,0.03); }
+  tbody tr.rank-1 td.rank-cell { color: #ffd700; }
+  tbody tr.rank-2 td.rank-cell { color: #c0c0c0; }
+  tbody tr.rank-3 td.rank-cell { color: #cd7f32; }
+
+  td {
+    padding: 6px 12px; text-align: right; white-space: nowrap;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 11.5px;
+  }
+  td:first-child { text-align: left; }
+  td.rank-cell { color: var(--muted); font-size: 11px; width: 28px; padding-right: 4px; }
+  td.pace-cell { font-size: 14px; font-weight: 700; }
+  td.name-cell {
+    text-align: left; max-width: 280px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 12px;
+  }
+  td.name-cell a:hover { color: var(--accent); }
+  td.date-cell { color: var(--muted2); font-size: 11px; text-align: left; }
+  td.date-cell.recent-year { color: var(--accent4); }
+  td.date-cell.recent-90d  { color: var(--accent3); }
+  td.date-cell.recent-30d  { color: var(--accent); font-weight: 700; }
+  td.time-cell  { color: var(--muted2); }
+  td.elev-cell  { color: var(--muted2); }
+  td.hr-cell    { }
+  td.load-cell  { color: var(--muted2); }
+  td.link-cell  { color: var(--muted); font-size: 11px; }
+  td.link-cell a { color: inherit; text-decoration: none; }
+  td.link-cell a:hover { color: var(--accent); }
+
+  .race-dot {
+    display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent4); margin-right: 5px; vertical-align: middle; flex-shrink: 0;
+  }
+  .trail-dot {
+    display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+    background: #84cc16; margin-right: 5px; vertical-align: middle; flex-shrink: 0;
+  }
+
+  /* Inline mini bars for elev/HR */
+  .mini-bar-wrap { display: flex; align-items: center; gap: 5px; justify-content: flex-end; }
+  .mini-bar { height: 4px; border-radius: 2px; background: var(--accent4); opacity: 0.7; min-width: 1px; }
+  .mini-bar.hr-bar { background: var(--accent5); }
+
+  /* Pace heat coloring applied via JS */
+
+  footer {
+    margin-top: 36px; padding: 14px 24px;
+    border-top: 1px solid var(--border); color: var(--muted); font-size: 10px;
+  }
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>&#x26A1; Best Efforts</h1>
+  <span class="subtitle">Top 30 efforts per distance &middot; all running activities &middot; sorted by pace</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html" class="active">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+<div class="dist-bar" id="dist-bar"></div>
+<div class="summary-bar" id="summary-bar"></div>
+<div class="table-wrap">
+  <table id="efforts-table">
+    <thead id="efforts-thead"></thead>
+    <tbody id="efforts-tbody"></tbody>
+  </table>
+</div>
+
+</main>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+<script>
+const data   = BEST_EFFORTS_DATA;
+const labels = BEST_EFFORTS_LABELS;
+
+let activeLabel = labels.find(l => l === '5K') || labels[0];
+let sortCol  = 'sec_per_mi';
+let sortDir  = 'asc';
+
+// Pace → hue: fastest=green (120°) → slowest=red (0°). Normalised within top-30.
+function paceColor(secPerMi, minSpm, maxSpm) {
+  const t = maxSpm > minSpm ? (secPerMi - minSpm) / (maxSpm - minSpm) : 0;
+  const hue = Math.round(120 - t * 80);  // 120 (green) → 40 (amber)
+  return `hsl(${hue}, 70%, 58%)`;
+}
+
+function fmtElev(elevPerMi) {
+  if (!elevPerMi && elevPerMi !== 0) return '—';
+  if (elevPerMi < 1) return '<1 ft/mi';
+  return `${elevPerMi.toFixed(0)} ft/mi`;
+}
+
+function fmtHr(hr) {
+  return hr ? `${hr}` : '—';
+}
+
+const NOW = new Date();
+function recencyClass(dateStr) {
+  const d = new Date(dateStr);
+  const days = (NOW - d) / 86400000;
+  if (days <= 30)  return 'recent-30d';
+  if (days <= 90)  return 'recent-90d';
+  if (days <= 365) return 'recent-year';
+  return '';
+}
+
+function buildDistBar() {
+  const bar = document.getElementById('dist-bar');
+  bar.innerHTML = labels.map(lbl => {
+    const count = (data[lbl] || []).length;
+    return `<button class="dist-btn${lbl === activeLabel ? ' active' : ''}"
+      onclick="selectDist('${lbl}')">${lbl} <span style="font-size:9px;color:var(--muted);font-weight:400">${count}</span></button>`;
+  }).join('');
+}
+
+function buildSummary(efforts) {
+  const bar = document.getElementById('summary-bar');
+  if (!efforts || !efforts.length) { bar.innerHTML = ''; return; }
+
+  const fastest  = efforts[0];
+  const n        = efforts.length;
+  const races    = efforts.filter(e => e.is_race).length;
+  const avgPace  = efforts.reduce((s,e) => s + e.sec_per_mi, 0) / n;
+  const avgHr    = efforts.filter(e=>e.avg_hr).reduce((s,e)=>s+e.avg_hr,0) / (efforts.filter(e=>e.avg_hr).length||1);
+  const minYear  = Math.min(...efforts.map(e => parseInt(e.date)));
+  const maxYear  = Math.max(...efforts.map(e => parseInt(e.date)));
+
+  function fmtPaceSec(s) {
+    const mn = Math.floor(s/60), sc = Math.round(s%60);
+    return `${mn}:${sc.toString().padStart(2,'0')}`;
+  }
+
+  bar.innerHTML = `
+    <div class="s-item"><div class="s-label">Best Pace</div><div class="s-val">${fastest.pace_mile}/mi</div></div>
+    <div class="s-item"><div class="s-label">Best Time</div><div class="s-val green">${fastest.time_fmt}</div></div>
+    <div class="s-item"><div class="s-label">Avg Pace (top ${n})</div><div class="s-val" style="color:var(--text)">${fmtPaceSec(avgPace)}/mi</div></div>
+    <div class="s-item"><div class="s-label">Race Efforts</div><div class="s-val amber">${races}</div></div>
+    <div class="s-item"><div class="s-label">Avg HR</div><div class="s-val" style="color:var(--accent5)">${Math.round(avgHr) || '—'}</div></div>
+    <div class="s-item"><div class="s-label">Years</div><div class="s-val" style="color:var(--muted2)">${minYear === maxYear ? minYear : minYear + ' – ' + maxYear}</div></div>
+  `;
+}
+
+function sortedEfforts(efforts) {
+  const dir = sortDir === 'asc' ? 1 : -1;
+  return [...efforts].sort((a, b) => {
+    let av = a[sortCol], bv = b[sortCol];
+    if (av === null || av === undefined) av = sortDir === 'asc' ? Infinity : -Infinity;
+    if (bv === null || bv === undefined) bv = sortDir === 'asc' ? Infinity : -Infinity;
+    return (av > bv ? 1 : av < bv ? -1 : 0) * dir;
+  });
+}
+
+function buildTable(label) {
+  const raw = data[label] || [];
+  const efforts = sortedEfforts(raw);
+
+  // Pace range for color scale (use original sorted-by-pace order)
+  const original = [...raw].sort((a,b) => a.sec_per_mi - b.sec_per_mi);
+  const minSpm = original.length ? original[0].sec_per_mi : 0;
+  const maxSpm = original.length ? original[original.length-1].sec_per_mi : 1;
+  const maxElev = Math.max(...raw.map(e => e.elev_per_mi || 0), 1);
+  const maxHr   = Math.max(...raw.map(e => e.avg_hr || 0), 1);
+
+  const COLS = [
+    { key: 'rank',       label: '#',            sort: null },
+    { key: 'pace_mile',  label: 'Pace/mi',      sort: 'sec_per_mi' },
+    { key: 'time_fmt',   label: 'Time',         sort: 'elapsed_s' },
+    { key: 'date',       label: 'Date',         sort: 'date' },
+    { key: 'name',       label: 'Activity',     sort: null },
+    { key: 'elev_per_mi',label: 'Elev/mi',      sort: 'elev_per_mi' },
+    { key: 'avg_hr',     label: 'Avg HR',       sort: 'avg_hr' },
+    { key: 'load',       label: 'Load',         sort: 'load' },
+    { key: 'miles',      label: 'Total mi',     sort: 'activity_miles' },
+    { key: 'link',       label: '',             sort: null },
+  ];
+
+  // Header
+  document.getElementById('efforts-thead').innerHTML = `<tr>` +
+    COLS.map(c => {
+      let cls = '';
+      if (c.sort && c.sort === sortCol) cls = sortDir === 'asc' ? ' class="sort-asc"' : ' class="sort-desc"';
+      const onclick = c.sort ? `onclick="setSort('${c.sort}')"` : '';
+      return `<th${cls} ${onclick}>${c.label}</th>`;
+    }).join('') + `</tr>`;
+
+  // Find original rank for each effort (by pace)
+  const rankMap = {};
+  original.forEach((e, i) => { rankMap[e.activity_id + '_' + e.date] = i + 1; });
+
+  // Body
+  const rows = efforts.map(e => {
+    const k    = e.activity_id + '_' + e.date;
+    const rank = rankMap[k] || '—';
+    const paceCol = paceColor(e.sec_per_mi, minSpm, maxSpm);
+    const elevBarW = maxElev > 0 ? Math.round((e.elev_per_mi||0) / maxElev * 60) : 0;
+    const hrBarW   = maxHr > 0   ? Math.round((e.avg_hr||0) / maxHr * 60) : 0;
+    const raceDot  = e.is_race ? '<span class="race-dot" title="Race"></span>' : '';
+    const trailDot = (e.type === 'trail_running' || e.type === 'ultra_run') && !e.is_race
+      ? '<span class="trail-dot" title="Trail"></span>' : '';
+    const rankCls  = rank <= 3 ? `rank-${rank}` : '';
+
+    return `<tr class="${e.is_race ? 'is-race ' : ''}${rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : ''}">
+      <td class="rank-cell">${rank}</td>
+      <td class="pace-cell" style="color:${paceCol}">${e.pace_mile}</td>
+      <td class="time-cell">${e.time_fmt}</td>
+      <td class="date-cell ${recencyClass(e.date)}">${e.date}</td>
+      <td class="name-cell">${raceDot}${trailDot}<a href="activity/${e.activity_id}.html" style="color:inherit;text-decoration:none;">${e.name}</a></td>
+      <td class="elev-cell">
+        <div class="mini-bar-wrap">
+          <span>${fmtElev(e.elev_per_mi)}</span>
+          <div class="mini-bar" style="width:${elevBarW}px"></div>
+        </div>
+      </td>
+      <td class="hr-cell">
+        <div class="mini-bar-wrap">
+          <span>${fmtHr(e.avg_hr)}</span>
+          <div class="mini-bar hr-bar" style="width:${hrBarW}px"></div>
+        </div>
+      </td>
+      <td class="load-cell">${e.load !== null && e.load !== undefined ? e.load : '—'}</td>
+      <td class="load-cell">${e.activity_miles ? e.activity_miles.toFixed(1) : '—'}</td>
+      <td class="link-cell"><a href="activity/${e.activity_id}.html">›</a></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('efforts-tbody').innerHTML = rows ||
+    `<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px">No efforts found for this distance</td></tr>`;
+}
+
+function selectDist(label) {
+  activeLabel = label;
+  sortCol = 'sec_per_mi';
+  sortDir = 'asc';
+  buildDistBar();
+  buildSummary(data[label] || []);
+  buildTable(label);
+}
+
+function setSort(col) {
+  if (sortCol === col) {
+    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortCol = col;
+    sortDir = col === 'sec_per_mi' || col === 'elapsed_s' || col === 'avg_hr' ? 'asc' : 'desc';
+  }
+  buildTable(activeLabel);
+}
+
+buildDistBar();
+buildSummary(data[activeLabel] || []);
+buildTable(activeLabel);
+</script>
+</body>
+</html>

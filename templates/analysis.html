@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garmin Race Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="race-data.js"></script>
+<style>
+  :root { --pr-gold: #fbbf24; }
+  .mono { font-family: 'Atkinson Hyperlegible Mono', 'Fira Mono', monospace; }
+
+  main { padding: 20px 24px; max-width: 1400px; }
+
+  /* ── Category filter tabs ── */
+  .cat-tabs {
+    display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; align-items: center;
+  }
+  .cat-tab {
+    font-family: inherit; font-size: 11px; font-weight: 700;
+    padding: 5px 14px; border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--bg2); color: var(--muted2);
+    cursor: pointer; letter-spacing: 0.3px; transition: all 0.15s;
+  }
+  .cat-tab:hover { border-color: var(--muted2); color: var(--text); }
+  .cat-tab.active {
+    border-color: var(--accent); color: var(--accent);
+    background: rgba(0,212,255,0.08);
+  }
+  .cat-count {
+    display: inline-block; font-size: 9px; font-weight: 400;
+    background: rgba(255,255,255,0.08); border-radius: 3px;
+    padding: 0 4px; margin-left: 4px; vertical-align: middle;
+  }
+
+  /* ── Chart section ── */
+  .section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--muted); margin-bottom: 10px; padding-left: 2px;
+  }
+  .chart-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 20px;
+    margin-bottom: 24px;
+  }
+  .chart-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; flex-wrap: wrap; gap: 8px;
+  }
+  .chart-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .chart-hint  { font-size: 10px; color: var(--muted); }
+  .chart-wrap  { position: relative; height: 360px; }
+
+  /* ── Legend ── */
+  .legend-wrap {
+    display: flex; flex-wrap: wrap; gap: 6px 14px;
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px;
+    cursor: pointer; opacity: 1; transition: opacity 0.15s;
+    font-size: 10px; color: var(--muted2);
+    user-select: none;
+  }
+  .legend-item.hidden { opacity: 0.3; }
+  .legend-swatch {
+    width: 22px; height: 3px; border-radius: 2px; flex-shrink: 0;
+  }
+
+  /* ── Comparison table ── */
+  .table-wrap {
+    overflow-x: auto; border-radius: 8px; border: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  thead th {
+    background: var(--bg3); color: var(--muted); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border);
+    white-space: nowrap; position: sticky; top: 0; z-index: 1;
+  }
+  thead th.right { text-align: right; }
+  thead th.center { text-align: center; }
+
+  /* split header groups */
+  .th-split-group {
+    background: rgba(0,212,255,0.05);
+    border-left: 1px solid rgba(0,212,255,0.15);
+  }
+
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.025); }
+  tbody tr.hidden-row { display: none; }
+
+  td {
+    padding: 6px 10px; color: var(--text); white-space: nowrap;
+    vertical-align: middle;
+  }
+  td.right  { text-align: right; }
+  td.center { text-align: center; }
+  td.muted  { color: var(--muted2); }
+  td.mono   { font-family: 'Atkinson Hyperlegible Mono', monospace; }
+  td.accent { color: var(--accent); font-weight: 700; }
+  td.split-cell {
+    border-left: 1px solid rgba(0,212,255,0.08);
+    text-align: right;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    font-size: 11px;
+  }
+
+  /* Best-in-column highlight */
+  td.best-split {
+    color: var(--pr-gold) !important;
+    font-weight: 700;
+  }
+  td.best-split::after {
+    content: ' ★';
+    font-size: 8px;
+    vertical-align: super;
+  }
+
+  /* Color dot for race identity */
+  .race-dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; margin-right: 5px; flex-shrink: 0; vertical-align: middle;
+  }
+  .race-name-cell { display: flex; align-items: center; max-width: 220px; }
+  .race-name-text {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .dist-badge {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    padding: 1px 5px; border-radius: 3px; text-transform: uppercase; flex-shrink: 0;
+  }
+  .badge-5K    { background: rgba(0,212,255,0.12);  color: var(--accent); }
+  .badge-10K   { background: rgba(16,185,129,0.12); color: var(--accent3); }
+  .badge-hm    { background: rgba(124,58,237,0.12); color: #a78bfa; }
+  .badge-m     { background: rgba(245,158,11,0.12); color: var(--accent4); }
+  .badge-ultra { background: rgba(239,68,68,0.12);  color: var(--accent5); }
+
+  /* pace sparkbar in split cell */
+  .pace-bar-wrap { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+  .pace-bar {
+    height: 3px; border-radius: 2px; background: var(--accent4);
+    min-width: 1px; max-width: 50px;
+  }
+
+  footer {
+    margin-top: 40px; padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 10px;
+  }
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F4CA; Race Analysis</h1>
+  <span class="subtitle">Garmin &middot; {{ races|length }} races &middot; pace overlays &amp; split comparisons</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html" class="active">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+{# ── Build per-race colour map for use in table ── #}
+{% set color_map = {} %}
+{% for ps in pace_series_data %}
+  {% set _ = color_map.update({ps.id: ps.color}) %}
+{% endfor %}
+
+{# ── Category counts ── #}
+{% set cat_counts = {} %}
+{% for cat_name, cat_labels in analysis_categories %}
+  {% if cat_labels is none %}
+    {% set _ = cat_counts.update({cat_name: races|length}) %}
+  {% else %}
+    {% set cnt = races | selectattr('distance_label', 'in', cat_labels) | list | length %}
+    {% set _ = cat_counts.update({cat_name: cnt}) %}
+  {% endif %}
+{% endfor %}
+
+<!-- ── Category Tabs ── -->
+<div class="cat-tabs" id="cat-tabs">
+  {% for cat_name, cat_labels in analysis_categories %}
+  <button class="cat-tab {% if loop.first %}active{% endif %}"
+          data-cat="{{ cat_name }}"
+          data-labels="{{ (cat_labels | join(',')) if cat_labels else 'ALL' }}">
+    {{ cat_name }}<span class="cat-count">{{ cat_counts[cat_name] }}</span>
+  </button>
+  {% endfor %}
+</div>
+
+<!-- ── Pace Chart ── -->
+<div class="section-title">Pace / Mile Over Distance</div>
+<div class="chart-card">
+  <div class="chart-header">
+    <span class="chart-title" id="chart-title">Marathon &mdash; pace per mile overlay</span>
+    <span class="chart-hint">Click legend to toggle individual races &middot; Y-axis: faster up</span>
+  </div>
+  <div class="chart-wrap">
+    <canvas id="paceChart"></canvas>
+  </div>
+  <div class="legend-wrap" id="chart-legend"></div>
+</div>
+
+<!-- ── Split Comparison Table ── -->
+<div class="section-title">Split Comparison</div>
+<div class="table-wrap">
+  <table id="split-table">
+    <thead>
+      <tr>
+        <th>Race</th>
+        <th>Date</th>
+        <th>Dist</th>
+        <th class="right">Time</th>
+        <th class="right">Avg /mi</th>
+        <th class="th-split-group center" colspan="2">1K</th>
+        <th class="th-split-group center" colspan="2">1 mile</th>
+        <th class="th-split-group center" colspan="2">5K</th>
+        <th class="th-split-group center" colspan="2">10K</th>
+        <th class="th-split-group center" colspan="2">10 mile</th>
+        <th class="th-split-group center" colspan="2">Half Marathon</th>
+      </tr>
+      <tr>
+        <th colspan="5"></th>
+        {% for _, lbl in split_targets %}
+        <th class="th-split-group right" style="font-size:9px">time</th>
+        <th class="th-split-group right" style="font-size:9px">/mi</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody id="split-tbody">
+      {% for r in races %}
+        {% set splits = splits_by_label.get(r.activity_id, {}) %}
+        {% set ps = pace_series_data | selectattr('id', 'equalto', r.activity_id) | first | default(none) %}
+        {% set dot_color = color_map.get(r.activity_id, '#64748b') %}
+        <tr data-dist-label="{{ r.distance_label }}" data-dur="{{ r.duration or 999999 }}">
+          <td>
+            <div class="race-name-cell">
+              <span class="race-dot" style="background:{{ dot_color }}"></span>
+              <span class="race-name-text" title="{{ r.activity_name }}">{{ r.activity_name }}</span>
+            </div>
+          </td>
+          <td class="mono muted" style="font-size:10px">{{ r.date }}</td>
+          <td>
+            {% if r.distance_label in ['5K','~10K'] %}
+              <span class="dist-badge badge-5K">{{ r.distance_label }}</span>
+            {% elif r.distance_label == '10K' %}
+              <span class="dist-badge badge-10K">{{ r.distance_label }}</span>
+            {% elif 'Half' in r.distance_label or r.distance_label == '~HM' %}
+              <span class="dist-badge badge-hm">HM</span>
+            {% elif r.distance_label in ['Marathon','~Marathon'] %}
+              <span class="dist-badge badge-m">M</span>
+            {% elif r.distance_label in ['50K','Ultra'] %}
+              <span class="dist-badge badge-ultra">{{ r.distance_label }}</span>
+            {% else %}
+              <span class="dist-badge" style="border:1px solid #334">{{ r.distance_label }}</span>
+            {% endif %}
+          </td>
+          <td class="right mono" style="color:var(--accent3)">{{ r.duration_fmt }}</td>
+          <td class="right mono" style="color:var(--accent4)">{{ r.pace_mile }}</td>
+          {% for _, lbl in split_targets %}
+            {% set sp = splits.get(lbl) %}
+            {% if sp %}
+              <td class="split-cell"
+                  data-split="{{ lbl }}"
+                  data-sec-per-mi="{{ sp.sec_per_mi }}">
+                {{ sp.duration_fmt }}
+              </td>
+              <td class="split-cell muted" data-split="{{ lbl }}-pace">{{ sp.pace_mile }}</td>
+            {% else %}
+              <td class="split-cell muted" data-split="{{ lbl }}">—</td>
+              <td class="split-cell muted" data-split="{{ lbl }}-pace">—</td>
+            {% endif %}
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+</main>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+<script>
+// ── Data loaded from race-data.js ─────────────────────────────────
+const ALL_SERIES  = RACE_DATA.pace_series;
+
+// ── Helpers ────────────────────────────────────────────────────────
+function secToMMSS(sec) {
+  const s = Math.round(sec);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+// ── Chart setup ────────────────────────────────────────────────────
+const ctx = document.getElementById('paceChart').getContext('2d');
+
+const paceChart = new Chart(ctx, {
+  type: 'line',
+  data: { datasets: [] },
+  options: {
+    animation: { duration: 300 },
+    responsive: true,
+    maintainAspectRatio: false,
+    parsing: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#0f1c30',
+        borderColor: '#1e2d45',
+        borderWidth: 1,
+        titleColor: '#94a3b8',
+        bodyColor: '#e2e8f0',
+        titleFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
+        bodyFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 11 },
+        callbacks: {
+          title: items => `Mile ${items[0].parsed.x.toFixed(2)}`,
+          label: item => ` ${item.dataset.label}: ${secToMMSS(item.parsed.y)}/mi`,
+        },
+        itemSort: (a, b) => a.parsed.y - b.parsed.y,
+      },
+    },
+    scales: {
+      x: {
+        type: 'linear',
+        title: { display: true, text: 'Distance (miles)', color: '#64748b', font: { size: 10 } },
+        ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
+        grid:  { color: 'rgba(255,255,255,0.04)' },
+      },
+      y: {
+        reverse: true,   // faster pace (lower seconds) at top
+        title: { display: true, text: 'Pace / mile', color: '#64748b', font: { size: 10 } },
+        ticks: {
+          color: '#64748b',
+          font: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
+          callback: v => secToMMSS(v),
+          maxTicksLimit: 8,
+        },
+        grid:  { color: 'rgba(255,255,255,0.04)' },
+      },
+    },
+  },
+});
+
+// ── Legend builder ─────────────────────────────────────────────────
+function buildLegend(datasets) {
+  const wrap = document.getElementById('chart-legend');
+  wrap.innerHTML = '';
+  datasets.forEach((ds, i) => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.dataset.idx = i;
+    item.innerHTML =
+      `<span class="legend-swatch" style="background:${ds.borderColor}"></span>` +
+      `<span>${ds.label}</span>`;
+    item.addEventListener('click', () => {
+      const meta = paceChart.getDatasetMeta(i);
+      meta.hidden = !meta.hidden;
+      item.classList.toggle('hidden', meta.hidden);
+      paceChart.update();
+    });
+    wrap.appendChild(item);
+  });
+}
+
+// ── Category filter logic ──────────────────────────────────────────
+function applyCategory(catName, catLabels) {
+  // Filter pace series
+  const filtered = catLabels
+    ? ALL_SERIES.filter(r => catLabels.includes(r.dist_label))
+    : ALL_SERIES;
+
+  // Rebuild chart datasets
+  const datasets = filtered.map(r => ({
+    label:           `${r.name} (${r.date})`,
+    data:            r.series,
+    borderColor:     r.color,
+    backgroundColor: r.color + '18',
+    borderWidth:     1.8,
+    pointRadius:     0,
+    pointHoverRadius: 4,
+    tension:         0.35,
+    fill:            false,
+  }));
+
+  paceChart.data.datasets = datasets;
+  paceChart.update();
+  buildLegend(datasets);
+
+  // Update chart title
+  const titleEl = document.getElementById('chart-title');
+  titleEl.textContent = catName === 'All'
+    ? 'All races \u2014 pace per mile overlay'
+    : `${catName} \u2014 pace per mile overlay (${filtered.length} races)`;
+
+  // Filter table rows
+  const rows = document.querySelectorAll('#split-tbody tr');
+  rows.forEach(row => {
+    const lbl = row.dataset.distLabel;
+    const show = !catLabels || catLabels.includes(lbl);
+    row.classList.toggle('hidden-row', !show);
+  });
+
+  // Re-highlight best splits within visible rows
+  highlightBestSplits(catLabels);
+}
+
+// ── Best-split column highlighting ────────────────────────────────
+const SPLIT_LABELS = RACE_DATA.split_labels;
+
+function highlightBestSplits(catLabels) {
+  // Remove existing highlights
+  document.querySelectorAll('td.best-split').forEach(td => td.classList.remove('best-split'));
+
+  SPLIT_LABELS.forEach(lbl => {
+    // Collect all visible cells for this split
+    const cells = Array.from(
+      document.querySelectorAll(`#split-tbody tr:not(.hidden-row) td[data-split="${lbl}"]`)
+    );
+    let bestSec = Infinity, bestCell = null;
+    cells.forEach(td => {
+      const v = parseFloat(td.dataset.secPerMi);
+      if (!isNaN(v) && v < bestSec) { bestSec = v; bestCell = td; }
+    });
+    if (bestCell) bestCell.classList.add('best-split');
+  });
+}
+
+// ── Tab click handler ──────────────────────────────────────────────
+document.getElementById('cat-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('.cat-tab');
+  if (!btn) return;
+
+  document.querySelectorAll('.cat-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const catName   = btn.dataset.cat;
+  const labelsRaw = btn.dataset.labels;
+  const catLabels = labelsRaw === 'ALL' ? null : labelsRaw.split(',');
+  applyCategory(catName, catLabels);
+});
+
+// ── Init: show first category (Marathon) ──────────────────────────
+(function init() {
+  const first = document.querySelector('.cat-tab.active');
+  const labelsRaw = first.dataset.labels;
+  const catLabels = labelsRaw === 'ALL' ? null : labelsRaw.split(',');
+  applyCategory(first.dataset.cat, catLabels);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+__pycache__
+.claude
+.vscode
+dist
+*.json
+image.png
+config.py

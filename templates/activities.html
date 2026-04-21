@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activities</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="activities-data.js"></script>
+<style>
+  :root {
+    /* Heatmap color stops */
+    --hm0: #0d1424;
+    --hm1: #0a3320;
+    --hm2: #0a5c30;
+    --hm3: #13924a;
+    --hm4: #10b981;
+  }
+  html[data-theme="light"] {
+    --hm0: #e8f0ee;
+    --hm1: #a7f3d0;
+    --hm2: #34d399;
+    --hm3: #10b981;
+    --hm4: #059669;
+  }
+  html[data-theme="light"] .hm-cell:hover { outline-color: rgba(0,0,0,0.25); }
+  main { padding: 24px 28px; max-width: 1300px; }
+
+  .section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--muted); margin-bottom: 14px; padding-left: 2px;
+  }
+
+  /* ── Heatmap ── */
+  .heatmap-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 24px; margin-bottom: 30px;
+    overflow-x: auto;
+  }
+  .heatmap-card h2 {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    margin-bottom: 4px;
+  }
+  .heatmap-subtitle {
+    font-size: 11px; color: var(--muted); margin-bottom: 18px;
+  }
+
+  .hm-wrap {
+    display: inline-block; min-width: 100%;
+  }
+
+  /* Week-number labels row */
+  .hm-wk-labels {
+    display: flex; margin-left: 44px; margin-bottom: 4px;
+  }
+  .hm-wk-label {
+    width: 13px; height: 13px; margin: 1px;
+    font-size: 8px; color: var(--muted); text-align: center;
+    line-height: 13px; flex-shrink: 0;
+  }
+
+  /* Each year row */
+  .hm-row {
+    display: flex; align-items: center; margin-bottom: 2px;
+  }
+  .hm-year-label {
+    width: 38px; font-size: 10px; color: var(--muted2);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    flex-shrink: 0; text-align: right; padding-right: 6px;
+  }
+  .hm-cells { display: flex; gap: 2px; }
+
+  .hm-cell {
+    width: 13px; height: 13px; border-radius: 2px;
+    flex-shrink: 0; cursor: default;
+    transition: outline 0.08s;
+  }
+  .hm-cell:hover { outline: 1.5px solid rgba(255,255,255,0.5); outline-offset: 1px; }
+  .hm-cell.empty { background: var(--hm0); }
+
+  /* Legend */
+  .hm-legend {
+    display: flex; align-items: center; gap: 4px;
+    margin-top: 14px; font-size: 10px; color: var(--muted);
+  }
+  .hm-legend-swatch {
+    width: 13px; height: 13px; border-radius: 2px; flex-shrink: 0;
+  }
+  .hm-legend-label { margin: 0 4px; }
+
+  /* ── Tooltip ── */
+  .hm-tooltip {
+    position: fixed; z-index: 100;
+    background: #0c1625; border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 12px;
+    pointer-events: none; white-space: nowrap;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    font-size: 11px;
+  }
+  .hm-tooltip .tt-head {
+    font-weight: 700; color: var(--accent); margin-bottom: 4px; font-size: 11px;
+  }
+  .hm-tooltip .tt-row {
+    color: var(--text); display: flex; gap: 12px; margin-bottom: 2px;
+  }
+  .hm-tooltip .tt-row span { color: var(--muted2); font-size: 10px; }
+
+  /* ── Year summary table ── */
+  .table-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; margin-bottom: 30px;
+  }
+  .table-card h2 {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    padding: 14px 18px 12px; border-bottom: 1px solid var(--border);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    background: var(--bg3); color: var(--muted); font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 8px 14px; text-align: right; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  thead th:first-child { text-align: left; }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.025); }
+  tbody tr.current-year { background: rgba(0,212,255,0.04); }
+  td {
+    padding: 8px 14px; text-align: right; white-space: nowrap;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 11.5px;
+  }
+  td:first-child {
+    text-align: left; font-family: 'Atkinson Hyperlegible', sans-serif;
+    font-weight: 700; font-size: 13px; color: var(--text);
+  }
+  td.hi   { color: var(--accent); }
+  td.dim  { color: var(--muted2); }
+  td.race { color: var(--accent4); }
+  td.peak { color: var(--accent3); }
+
+  /* Inline sparkbar inside td */
+  .bar-wrap { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+  .bar-bg {
+    height: 4px; border-radius: 2px;
+    background: var(--bg3); flex-shrink: 0; width: 60px; position: relative;
+  }
+  .bar-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    border-radius: 2px; background: var(--accent3);
+  }
+
+  footer {
+    margin-top: 40px; padding: 16px 24px;
+    border-top: 1px solid var(--border); color: var(--muted); font-size: 10px;
+  }
+
+  /* ── Rolling Mile Charts ── */
+  .rolling-section {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 20px; margin-bottom: 30px;
+  }
+  .rolling-section h2 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .rolling-subtitle { font-size: 11px; color: var(--muted); margin-bottom: 18px; }
+  .rolling-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .rolling-charts { grid-template-columns: 1fr; } }
+  .rolling-panel {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .rolling-panel-title { font-size: 11px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .rolling-svg-wrap { width: 100%; }
+  .rolling-stats {
+    margin-top: 8px; display: flex; gap: 14px; flex-wrap: wrap;
+    font-size: 10px; color: var(--muted2);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+
+  /* ── Monthly Distance Chart ── */
+  .monthly-section {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 20px; margin-bottom: 30px;
+    overflow: hidden;
+  }
+  .monthly-section h2 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .monthly-subtitle { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+  .monthly-chart-wrap { width: 100%; }
+
+  /* ── Pattern Heatmaps ── */
+  .pattern-section {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 20px; margin-bottom: 30px;
+  }
+  .pattern-section h2 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .pattern-subtitle  { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
+
+  .metric-toggle { display: flex; gap: 5px; margin-bottom: 16px; }
+  .metric-btn {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+    padding: 4px 12px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg3); color: var(--muted2); cursor: pointer; transition: all 0.12s;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .metric-btn:hover  { color: var(--text); border-color: var(--muted2); }
+  .metric-btn.active { color: #c084fc; border-color: #7c3aed; background: rgba(124,58,237,0.15); }
+
+  .pattern-body {
+    display: grid;
+    grid-template-columns: auto auto auto 1fr;
+    gap: 20px; align-items: start;
+  }
+  @media (max-width: 900px) {
+    .pattern-body { grid-template-columns: 1fr; }
+  }
+
+  .phm-wrap { overflow-x: auto; }
+  .phm-title {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  .phm-col-labels { display: flex; margin-left: 38px; margin-bottom: 3px; }
+  .phm-col-lbl {
+    font-size: 8px; color: var(--muted); text-align: center; flex-shrink: 0;
+  }
+  .phm-row { display: flex; align-items: center; margin-bottom: 2px; }
+  .phm-yr-lbl {
+    width: 32px; font-size: 10px; color: var(--muted2); text-align: right;
+    padding-right: 6px; flex-shrink: 0;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .phm-cells { display: flex; gap: 2px; }
+  .phm-cell {
+    border-radius: 3px; flex-shrink: 0; cursor: default;
+    transition: outline 0.08s;
+  }
+  .phm-cell:hover { outline: 1.5px solid rgba(255,255,255,0.55); outline-offset: 1px; }
+  .phm-cell.empty { background: #0d1020; }
+
+  /* Stats panel */
+  .hm-stats-panel {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    align-content: start;
+  }
+  .hm-stat-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .hm-stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 4px; }
+  .hm-stat-val   { font-size: 15px; font-weight: 700; color: #c084fc; font-family: 'Atkinson Hyperlegible Mono', monospace; }
+  .hm-stat-sub   { font-size: 9px; color: var(--muted2); margin-top: 2px; }
+
+  /* ── Activity Log ── */
+  .log-year-bar {
+    display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 14px;
+  }
+  .yr-btn {
+    font-size: 11px; padding: 3px 10px; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--bg2);
+    color: var(--muted2); cursor: pointer; transition: all 0.12s;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .yr-btn:hover, .yr-btn.active {
+    color: var(--accent); border-color: var(--accent);
+    background: rgba(0,212,255,0.06);
+  }
+  .month-block { margin-bottom: 10px; }
+  .month-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; cursor: pointer; user-select: none;
+    transition: background 0.1s;
+  }
+  .month-block.open .month-head { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .month-head:hover { background: var(--bg3); }
+  .month-name { font-size: 13px; font-weight: 700; color: var(--text); min-width: 110px; }
+  .month-stats { font-size: 11px; color: var(--muted2); display: flex; gap: 14px; }
+  .month-stats span { font-family: 'Atkinson Hyperlegible Mono', monospace; }
+  .month-toggle { margin-left: auto; font-size: 10px; color: var(--muted); }
+  .month-acts {
+    display: none; border: 1px solid var(--border); border-top: none;
+    border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;
+    overflow: hidden;
+  }
+  .month-block.open .month-acts { display: block; }
+  .act-row {
+    display: grid;
+    grid-template-columns: 68px 1fr 90px 70px 62px 62px 48px 80px 22px;
+    align-items: center; gap: 0;
+    padding: 5px 14px; border-bottom: 1px solid var(--border);
+    font-size: 11px; transition: background 0.08s;
+    text-decoration: none; color: inherit;
+  }
+  .act-row:last-child { border-bottom: none; }
+  .act-row:hover { background: rgba(255,255,255,0.03); }
+  .act-row.is-race { background: rgba(245,158,11,0.04); }
+  .act-date { color: var(--muted2); font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 10px; }
+  .act-name { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
+  .act-type-badge {
+    font-size: 8px; text-transform: uppercase; letter-spacing: 0.6px;
+    padding: 1px 5px; border-radius: 3px; border: 1px solid;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    white-space: nowrap; justify-self: start;
+  }
+  .act-type-badge.running, .act-type-badge.road_running { color: #10b981; border-color: rgba(16,185,129,0.4); }
+  .act-type-badge.trail_running { color: #84cc16; border-color: rgba(132,204,22,0.4); }
+  .act-type-badge.treadmill_running { color: #34d399; border-color: rgba(52,211,153,0.4); }
+  .act-type-badge.track_running { color: #4ade80; border-color: rgba(74,222,128,0.4); }
+  .act-type-badge.ultra_run { color: #f59e0b; border-color: rgba(245,158,11,0.4); }
+  .act-miles { text-align: right; font-family: 'Atkinson Hyperlegible Mono', monospace; color: var(--accent); }
+  .act-time  { text-align: right; font-family: 'Atkinson Hyperlegible Mono', monospace; color: var(--muted2); }
+  .act-pace  { text-align: right; font-family: 'Atkinson Hyperlegible Mono', monospace; color: var(--text); }
+  .act-hr    { text-align: right; font-family: 'Atkinson Hyperlegible Mono', monospace; color: var(--muted2); font-size: 10px; }
+  .act-link  { text-align: right; color: var(--muted); font-size: 10px; }
+  .act-row:hover .act-link { color: var(--accent); }
+  .act-notables { display: flex; gap: 2px; align-items: center; justify-content: flex-end; overflow: hidden; }
+  .act-n { font-size: 11px; cursor: default; line-height: 1; opacity: 0.85; }
+  .act-n-pr        { color: #ffd700; }
+  .act-n-milestone { color: #a78bfa; }
+  .act-n-hot       { color: var(--accent4); }
+  .act-n-good      { color: var(--accent3); }
+  .act-n-ok        { color: var(--accent); }
+  .act-n-muted     { color: var(--muted2); }
+  .log-col-head {
+    display: grid;
+    grid-template-columns: 68px 1fr 90px 70px 62px 62px 48px 80px 22px;
+    gap: 0; padding: 5px 14px;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); background: var(--bg3);
+    border: 1px solid var(--border); border-bottom: none;
+    border-top-left-radius: 8px; border-top-right-radius: 8px;
+  }
+  .log-col-head span:not(:first-child):not(:nth-child(2)) { text-align: right; }
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F3C3; Activities</h1>
+  <span class="subtitle">Garmin &middot; all running activities &middot; weekly heatmap &amp; year summary</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html" class="active">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+<!-- Heatmap -->
+<div class="section-title">Weekly Mileage — All Years</div>
+<div class="heatmap-card">
+  <h2>Activity Heatmap</h2>
+  <div class="heatmap-subtitle">Each cell = one ISO week &nbsp;·&nbsp; color intensity = miles run &nbsp;·&nbsp; hover for detail</div>
+  <div class="hm-wrap" id="heatmap-wrap"></div>
+  <div class="hm-legend" id="hm-legend"></div>
+</div>
+
+<!-- Rolling mile charts -->
+<div class="section-title">Recent Mileage</div>
+<div class="rolling-section">
+  <h2>Trailing Miles</h2>
+  <div class="rolling-subtitle">Weekly mileage over trailing windows &nbsp;·&nbsp; dashed line = avg/week</div>
+  <div class="rolling-charts">
+    <div class="rolling-panel">
+      <div class="rolling-panel-title">Last 365 Days</div>
+      <div class="rolling-svg-wrap" id="rolling-svg-365"></div>
+      <div class="rolling-stats" id="rolling-stats-365"></div>
+    </div>
+    <div class="rolling-panel">
+      <div class="rolling-panel-title">Last 90 Days</div>
+      <div class="rolling-svg-wrap" id="rolling-svg-90"></div>
+      <div class="rolling-stats" id="rolling-stats-90"></div>
+    </div>
+    <div class="rolling-panel">
+      <div class="rolling-panel-title">Last 30 Days</div>
+      <div class="rolling-svg-wrap" id="rolling-svg-30"></div>
+      <div class="rolling-stats" id="rolling-stats-30"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Year summary -->
+<div class="section-title">Year Summary</div>
+<div class="table-card">
+  <h2>Running by Year</h2>
+  <table id="year-table">
+    <thead>
+      <tr>
+        <th>Year</th>
+        <th>Races</th>
+        <th>Runs</th>
+        <th>Miles</th>
+        <th>Time (hrs)</th>
+        <th>Days Active</th>
+        <th>Active Wks</th>
+        <th>Avg mi/wk</th>
+        <th>Peak Week</th>
+      </tr>
+    </thead>
+    <tbody id="year-tbody"></tbody>
+  </table>
+</div>
+
+<!-- Monthly distance chart -->
+<div class="section-title">Distance by Month</div>
+<div class="monthly-section">
+  <h2>Miles by Month &mdash; All Time</h2>
+  <div class="monthly-subtitle">Total miles per calendar month &nbsp;·&nbsp; hover for detail &nbsp;·&nbsp; year labels at January</div>
+  <div class="monthly-chart-wrap" id="monthly-chart"></div>
+</div>
+
+<!-- Pattern Heatmaps -->
+<div class="section-title">Activity Patterns</div>
+<div class="pattern-section">
+  <h2>When Do You Run?</h2>
+  <div class="pattern-subtitle">Year rows &middot; hover for detail &middot; color = selected metric</div>
+  <div class="metric-toggle" id="metric-toggle"></div>
+  <div class="pattern-body">
+    <div class="phm-wrap" id="phm-dow"></div>
+    <div class="phm-wrap" id="phm-month"></div>
+    <div class="phm-wrap" id="phm-hour"></div>
+    <div class="hm-stats-panel" id="hm-stats-panel"></div>
+  </div>
+</div>
+
+<!-- Activity Log -->
+<div class="section-title" style="margin-top: 4px">Activity Log</div>
+<div class="log-year-bar" id="log-year-bar"></div>
+<div class="log-col-head">
+  <span>Date</span><span>Activity</span><span>Type</span>
+  <span>Miles</span><span>Time</span><span>Pace/mi</span><span>Avg HR</span><span>Notables</span><span></span>
+</div>
+<div id="activity-log"></div>
+
+</main>
+
+<div class="hm-tooltip" id="tooltip" style="display:none"></div>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+<script>
+const { weeks, year_stats, days_list } = ACTIVITIES_DATA;
+
+// ── Color scale ────────────────────────────────────────────────────
+const HM_COLORS = ['#0d1424','#0a3320','#0a5c30','#13924a','#10b981'];
+
+function milesBucket(miles, maxMi) {
+  if (!miles || miles === 0) return 0;
+  const t = miles / maxMi;
+  if (t < 0.15) return 1;
+  if (t < 0.40) return 2;
+  if (t < 0.70) return 3;
+  return 4;
+}
+
+// ── Heatmap ───────────────────────────────────────────────────────
+function buildHeatmap() {
+  const years = [...new Set(year_stats.map(y => y.year))].sort((a, b) => a - b);
+  const maxMi = Math.max(...weeks.map(w => w.miles));
+  const currentYear = new Date().getFullYear();
+
+  // Lookup: "year_week" → week data
+  const lookup = {};
+  weeks.forEach(w => { lookup[`${w.year}_${w.week}`] = w; });
+
+  const wrap = document.getElementById('heatmap-wrap');
+  let html = '';
+
+  // Week label row (every 4 weeks)
+  html += '<div class="hm-wk-labels">';
+  for (let w = 1; w <= 53; w++) {
+    html += `<div class="hm-wk-label">${w % 4 === 1 ? w : ''}</div>`;
+  }
+  html += '</div>';
+
+  // One row per year
+  years.forEach(year => {
+    html += `<div class="hm-row">`;
+    html += `<div class="hm-year-label">${year}</div>`;
+    html += `<div class="hm-cells">`;
+    for (let w = 1; w <= 53; w++) {
+      const d = lookup[`${year}_${w}`];
+      if (d) {
+        const bucket = milesBucket(d.miles, maxMi);
+        const bg = HM_COLORS[bucket];
+        html += `<div class="hm-cell"
+          style="background:${bg}"
+          data-year="${year}" data-week="${w}"
+          data-miles="${d.miles}" data-hours="${d.hours}"
+          data-runs="${d.runs}" data-days="${d.days}"
+          data-date="${d.date_start || ''}"></div>`;
+      } else {
+        html += `<div class="hm-cell empty"></div>`;
+      }
+    }
+    html += `</div></div>`;
+  });
+
+  wrap.innerHTML = html;
+
+  // Legend
+  const legend = document.getElementById('hm-legend');
+  legend.innerHTML =
+    `<span class="hm-legend-label">Less</span>` +
+    HM_COLORS.map(c => `<div class="hm-legend-swatch" style="background:${c}"></div>`).join('') +
+    `<span class="hm-legend-label">More</span>
+     <span style="margin-left:12px;color:var(--muted)">Max week: ${maxMi.toFixed(1)} mi</span>`;
+
+  // Tooltip events
+  wrap.addEventListener('mouseover', e => {
+    const cell = e.target.closest('.hm-cell:not(.empty)');
+    if (!cell) { hideTooltip(); return; }
+    const d = cell.dataset;
+    const tt = document.getElementById('tooltip');
+    tt.style.display = 'block';
+    tt.innerHTML = `
+      <div class="tt-head">Week ${d.week} · ${d.year}${d.date ? ' · ' + d.date : ''}</div>
+      <div class="tt-row">
+        <span>${d.miles} <span>mi</span></span>
+        <span>${d.hours} <span>hrs</span></span>
+      </div>
+      <div class="tt-row">
+        <span>${d.runs} <span>run${d.runs > 1 ? 's' : ''}</span></span>
+        <span>${d.days} <span>day${d.days > 1 ? 's' : ''} active</span></span>
+      </div>`;
+  });
+  wrap.addEventListener('mousemove', e => {
+    const tt = document.getElementById('tooltip');
+    if (tt.style.display === 'none') return;
+    tt.style.left = (e.clientX + 14) + 'px';
+    tt.style.top  = (e.clientY - 10) + 'px';
+  });
+  wrap.addEventListener('mouseleave', hideTooltip);
+}
+
+function hideTooltip() {
+  document.getElementById('tooltip').style.display = 'none';
+}
+
+// ── Year summary table ─────────────────────────────────────────────
+function buildYearTable() {
+  const maxMi   = Math.max(...year_stats.map(y => y.miles));
+  const thisYear = new Date().getFullYear();
+  const tbody = document.getElementById('year-tbody');
+  // Render most recent year first
+  const sorted = [...year_stats].sort((a, b) => b.year - a.year);
+
+  let html = '';
+  sorted.forEach(y => {
+    const barPct = maxMi > 0 ? (y.miles / maxMi * 100).toFixed(1) : 0;
+    const isCurrent = y.year === thisYear;
+    html += `<tr${isCurrent ? ' class="current-year"' : ''}>
+      <td>${y.year}${isCurrent ? ' <span style="font-size:9px;color:var(--accent);font-weight:400">▶ current</span>' : ''}</td>
+      <td class="race">${y.races || '—'}</td>
+      <td class="dim">${y.runs}</td>
+      <td class="hi">
+        <div class="bar-wrap">
+          <span>${y.miles.toFixed(1)}</span>
+          <div class="bar-bg"><div class="bar-fill" style="width:${barPct}%"></div></div>
+        </div>
+      </td>
+      <td class="dim">${y.hours.toFixed(1)}</td>
+      <td class="dim">${y.days_active}</td>
+      <td class="dim">${y.active_weeks}</td>
+      <td class="dim">${y.avg_miles_week.toFixed(1)}</td>
+      <td class="peak">${y.peak_week_miles.toFixed(1)}</td>
+    </tr>`;
+  });
+
+  // Totals row
+  const totMi  = year_stats.reduce((s, y) => s + y.miles, 0);
+  const totHrs = year_stats.reduce((s, y) => s + y.hours, 0);
+  const totRuns= year_stats.reduce((s, y) => s + y.runs, 0);
+  const totRaces = year_stats.reduce((s, y) => s + y.races, 0);
+  html += `<tr style="border-top:2px solid var(--border);background:var(--bg3)">
+    <td style="color:var(--muted2);font-size:11px">All time</td>
+    <td class="race">${totRaces}</td>
+    <td class="dim">${totRuns}</td>
+    <td class="hi" style="font-weight:700">${totMi.toFixed(1)}</td>
+    <td class="dim">${totHrs.toFixed(1)}</td>
+    <td class="dim">—</td>
+    <td class="dim">—</td>
+    <td class="dim">—</td>
+    <td class="dim">—</td>
+  </tr>`;
+
+  tbody.innerHTML = html;
+}
+
+// ── Pattern Heatmaps ──────────────────────────────────────────────
+const { dow_grid, month_grid, hour_grid, hm_stats } = ACTIVITIES_DATA;
+
+const PURPLE = ['#0d1020','#2a1260','#5b21b6','#8b5cf6','#c084fc','#e9d5ff'];
+
+const DOW_LABELS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function hourLabel(h) {
+  if (h === 0) return '12a'; if (h < 12) return h + 'a';
+  if (h === 12) return '12p'; return (h - 12) + 'p';
+}
+
+const METRICS = [
+  { key: 'runs',    label: 'COUNT',     fmt: v => v + ' runs' },
+  { key: 'miles',   label: 'DISTANCE',  fmt: v => v.toFixed(1) + ' mi' },
+  { key: 'hours',   label: 'TIME',      fmt: v => v.toFixed(1) + ' hrs' },
+  { key: 'elev_ft', label: 'ELEVATION', fmt: v => v.toFixed(0) + ' ft' },
+];
+let activeMetric = 'miles';
+
+function getYears(grid) {
+  return Object.keys(grid).map(Number).sort((a,b) => a - b);
+}
+
+function maxVal(grid, metric) {
+  let m = 0;
+  for (const yr of Object.values(grid))
+    for (const cell of Object.values(yr))
+      if ((cell[metric] || 0) > m) m = cell[metric];
+  return m || 1;
+}
+
+function colorForVal(val, max) {
+  if (!val || val === 0) return PURPLE[0];
+  const t = val / max;
+  if (t < 0.08)  return PURPLE[1];
+  if (t < 0.25)  return PURPLE[2];
+  if (t < 0.50)  return PURPLE[3];
+  if (t < 0.80)  return PURPLE[4];
+  return PURPLE[5];
+}
+
+function buildPatternHm(containerId, grid, colKeys, colLabels, title, cellW, cellH, labelEvery) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const years = getYears(grid);
+  const mx    = maxVal(grid, activeMetric);
+  const metricObj = METRICS.find(m => m.key === activeMetric);
+
+  let html = `<div class="phm-title">${title}</div>`;
+
+  // Column labels
+  html += '<div class="phm-col-labels">';
+  colKeys.forEach((k, i) => {
+    const lbl = (labelEvery === 1 || i % labelEvery === 0) ? colLabels[i] : '';
+    html += `<div class="phm-col-lbl" style="width:${cellW}px;margin:0 1px">${lbl}</div>`;
+  });
+  html += '</div>';
+
+  years.forEach(yr => {
+    html += '<div class="phm-row">';
+    html += `<div class="phm-yr-lbl">${yr}</div><div class="phm-cells">`;
+    colKeys.forEach(k => {
+      const cell = (grid[yr] || {})[String(k)] || {};
+      const val  = cell[activeMetric] || 0;
+      const bg   = val > 0 ? colorForVal(val, mx) : PURPLE[0];
+      const tip  = val > 0 ? `${colLabels[colKeys.indexOf(k)]} ${yr}: ${metricObj.fmt(val)}` : '';
+      html += `<div class="phm-cell${val === 0 ? ' empty' : ''}"
+        style="width:${cellW}px;height:${cellH}px;background:${bg}"
+        title="${tip}"></div>`;
+    });
+    html += '</div></div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function buildAllPatternHms() {
+  buildPatternHm('phm-dow',   dow_grid,   [0,1,2,3,4,5,6],   DOW_LABELS,   'Day of Week',    17, 13, 1);
+  buildPatternHm('phm-month', month_grid, [1,2,3,4,5,6,7,8,9,10,11,12], MONTH_LABELS, 'By Month', 17, 13, 1);
+  const hourKeys = Array.from({length: 24}, (_, i) => i);
+  const hourLbls = hourKeys.map(hourLabel);
+  buildPatternHm('phm-hour',  hour_grid,  hourKeys,           hourLbls,     'Hour of Day',    14, 13, 3);
+}
+
+function buildMetricToggle() {
+  const el = document.getElementById('metric-toggle');
+  el.innerHTML = METRICS.map(m =>
+    `<button class="metric-btn${m.key === activeMetric ? ' active' : ''}"
+      onclick="setMetric('${m.key}')">${m.label}</button>`
+  ).join('');
+}
+
+function setMetric(key) {
+  activeMetric = key;
+  buildMetricToggle();
+  buildAllPatternHms();
+}
+
+function buildHmStats() {
+  if (!hm_stats) return;
+  const s = hm_stats;
+  const weekStr = s.most_active_week.date_start
+    ? s.most_active_week.date_start.slice(0, 7)
+    : `Wk ${s.most_active_week.week}`;
+  document.getElementById('hm-stats-panel').innerHTML = `
+    <div class="hm-stat-card">
+      <div class="hm-stat-label">Most Active Day</div>
+      <div class="hm-stat-val">${s.most_active_dow.label} <span style="font-size:11px">(${s.most_active_dow.runs})</span></div>
+      <div class="hm-stat-sub">${s.most_active_dow.runs} total runs</div>
+    </div>
+    <div class="hm-stat-card">
+      <div class="hm-stat-label">Most Active Month</div>
+      <div class="hm-stat-val">${s.most_active_month.label} <span style="font-size:11px">(${s.most_active_month.runs})</span></div>
+      <div class="hm-stat-sub">${s.most_active_month.runs} total runs</div>
+    </div>
+    <div class="hm-stat-card">
+      <div class="hm-stat-label">Peak Hour</div>
+      <div class="hm-stat-val">${s.peak_hour.label} <span style="font-size:11px">(${s.peak_hour.runs})</span></div>
+      <div class="hm-stat-sub">${s.peak_hour.runs} runs at this hour</div>
+    </div>
+    <div class="hm-stat-card">
+      <div class="hm-stat-label">Peak Week</div>
+      <div class="hm-stat-val">${s.most_active_week.miles} <span style="font-size:11px">mi</span></div>
+      <div class="hm-stat-sub">${weekStr}</div>
+    </div>
+  `;
+}
+
+// ── Rolling Mile Charts (line, per-day) ──────────────────────────
+function buildRollingCharts() {
+  if (!days_list || !days_list.length) return;
+  const WINDOWS = [365, 90, 30];
+  const nowMs = Date.now();
+  const tooltip = document.getElementById('tooltip');
+
+  // Build a lookup: date string → {miles, runs}
+  const runDayMap = {};
+  days_list.forEach(d => { runDayMap[d.date] = d; });
+
+  const padL = 32, padR = 8, padT = 10, padB = 20;
+  const chartW = 360, chartH = 90;
+  const svgW = chartW + padL + padR;
+  const svgH = chartH + padT + padB;
+
+  WINDOWS.forEach(windowDays => {
+    const svgEl   = document.getElementById(`rolling-svg-${windowDays}`);
+    const statsEl = document.getElementById(`rolling-stats-${windowDays}`);
+    if (!svgEl) return;
+
+    // For 365d: x-axis spans all time (first run ever → today)
+    // For 90d/30d: x-axis spans the last windowDays days
+    const isAllTime = windowDays === 365;
+    const startMs   = isAllTime ? new Date(days_list[0].date).getTime()
+                                : nowMs - windowDays * 86400000;
+    const displaySpan = Math.ceil((nowMs - startMs) / 86400000);
+
+    const displayDates = [];
+    for (let i = 0; i <= displaySpan; i++)
+      displayDates.push(new Date(startMs + i * 86400000).toISOString().slice(0, 10));
+
+    // Two-pointer sliding window over full days_list to get rolling sum per display date
+    let leftIdx = 0, rightIdx = 0, rollingSum = 0;
+    const rollingValues = displayDates.map(d => {
+      const windowStart = new Date(new Date(d).getTime() - windowDays * 86400000).toISOString().slice(0, 10);
+      while (rightIdx < days_list.length && days_list[rightIdx].date <= d)
+        rollingSum += days_list[rightIdx++].miles;
+      while (leftIdx < rightIdx && days_list[leftIdx].date < windowStart)
+        rollingSum -= days_list[leftIdx++].miles;
+      return rollingSum;
+    });
+
+    const maxVal = Math.max(...rollingValues, 0.1);
+    const allDays = displayDates.map((date, i) => {
+      const run = runDayMap[date];
+      const rv  = rollingValues[i];
+      return {
+        date,
+        rollingMi: rv,
+        dayMiles:  run ? run.miles : 0,
+        runs:      run ? run.runs  : 0,
+        hasRun:    !!run,
+        x:         padL + (i / displaySpan) * chartW,
+        y:         padT + chartH - (rv / maxVal) * chartH,
+      };
+    });
+
+    const runDays = allDays.filter(d => d.hasRun);
+    if (!runDays.length) {
+      svgEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:10px 0">No data</div>';
+      return;
+    }
+
+    const currentTotal = rollingValues[rollingValues.length - 1];
+    const avgWeekly    = currentTotal / (windowDays / 7);
+
+    let svg = `<svg id="rsvg-${windowDays}" viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" preserveAspectRatio="none" style="display:block;overflow:visible">`;
+
+    // Grid lines + y labels (rolling window scale)
+    [0, 0.5, 1].forEach(frac => {
+      const y = padT + chartH * (1 - frac);
+      svg += `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="#1e2d45" stroke-width="1"/>`;
+      if (frac > 0) svg += `<text x="${padL - 4}" y="${y + 3}" text-anchor="end" font-size="7" fill="#64748b">${Math.round(maxVal * frac)}</text>`;
+    });
+
+    // Area fill
+    const pts = allDays.map(d => `${d.x.toFixed(1)},${d.y.toFixed(1)}`).join(' ');
+    const areaPts = `${padL},${padT + chartH} ` + pts + ` ${padL + chartW},${padT + chartH}`;
+    svg += `<polygon points="${areaPts}" fill="rgba(0,212,255,0.07)" stroke="none"/>`;
+
+    // Line
+    svg += `<polyline points="${pts}" fill="none" stroke="rgba(0,212,255,0.55)" stroke-width="1.5" stroke-linejoin="round"/>`;
+
+    // X-axis: month tick marks and labels at the 1st of each month
+    const MON_LBL = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    allDays.forEach(d => {
+      if (d.date.slice(8) === '01') {
+        const lbl = MON_LBL[parseInt(d.date.slice(5, 7)) - 1];
+        svg += `<line x1="${d.x.toFixed(1)}" y1="${padT + chartH}" x2="${d.x.toFixed(1)}" y2="${padT + chartH + 4}" stroke="#2a3a55" stroke-width="1"/>`;
+        svg += `<text x="${d.x.toFixed(1)}" y="${svgH - 2}" text-anchor="middle" font-size="7" fill="#64748b">${lbl}</text>`;
+      }
+    });
+
+    // Crosshair elements (hidden until hover)
+    svg += `<line id="rch-${windowDays}" x1="0" y1="${padT}" x2="0" y2="${padT + chartH}" stroke="rgba(255,255,255,0.3)" stroke-width="1" display="none"/>`;
+    svg += `<circle id="rcd-${windowDays}" cx="0" cy="0" r="4" fill="var(--accent)" stroke="#0a0e1a" stroke-width="1.5" display="none"/>`;
+
+    // Invisible overlay rect to capture mouse events
+    svg += `<rect id="rov-${windowDays}" x="${padL}" y="${padT}" width="${chartW}" height="${chartH}" fill="none" pointer-events="all" style="cursor:crosshair"/>`;
+
+    svg += '</svg>';
+    svgEl.innerHTML = svg;
+
+    // Stats row
+    if (statsEl) statsEl.innerHTML = `
+      <span>Now: <span style="color:var(--accent)">${currentTotal.toFixed(0)} mi</span></span>
+      <span>Avg/wk: <span style="color:var(--accent)">${avgWeekly.toFixed(1)} mi</span></span>
+      <span>Peak: <span style="color:#10b981">${maxVal.toFixed(0)} mi</span></span>`;
+
+    // Hover interaction
+    const overlay = document.getElementById(`rov-${windowDays}`);
+    const ch      = document.getElementById(`rch-${windowDays}`);
+    const cd      = document.getElementById(`rcd-${windowDays}`);
+
+    overlay.addEventListener('mousemove', e => {
+      const rect  = overlay.getBoundingClientRect();
+      // Convert client x to logical SVG x, accounting for viewBox scaling
+      const relX  = (e.clientX - rect.left) / rect.width;
+      const svgX  = padL + relX * chartW;
+
+      // Snap to nearest calendar day (all days have a rolling value)
+      const nearest = allDays.reduce((best, d) =>
+        Math.abs(d.x - svgX) < Math.abs(best.x - svgX) ? d : best
+      );
+
+      ch.setAttribute('x1', nearest.x); ch.setAttribute('x2', nearest.x);
+      ch.setAttribute('display', '');
+      cd.setAttribute('cx', nearest.x); cd.setAttribute('cy', nearest.y);
+      cd.setAttribute('display', '');
+
+      const actLine = nearest.hasRun
+        ? `<div class="tt-row"><span>${nearest.dayMiles.toFixed(1)} <span>mi</span></span><span>${nearest.runs} <span>activit${nearest.runs !== 1 ? 'ies' : 'y'}</span></span></div>`
+        : `<div class="tt-row" style="color:var(--muted)">Rest day</div>`;
+
+      tooltip.style.display = 'block';
+      tooltip.innerHTML = `
+        <div class="tt-head">${nearest.date}</div>
+        <div class="tt-row"><span>${nearest.rollingMi.toFixed(1)} <span>mi trailing ${windowDays}d</span></span></div>
+        ${actLine}`;
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 10) + 'px';
+    });
+
+    overlay.addEventListener('mouseleave', () => {
+      ch.setAttribute('display', 'none');
+      cd.setAttribute('display', 'none');
+      tooltip.style.display = 'none';
+    });
+  });
+}
+
+// ── Monthly Distance Chart ────────────────────────────────────────
+function buildMonthlyChart() {
+  const el = document.getElementById('monthly-chart');
+  if (!el || !month_grid) return;
+
+  const MON_SHORT = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  // Flatten month_grid into sorted (yr, mo, data) array
+  const monthData = [];
+  Object.keys(month_grid).map(Number).sort((a, b) => a - b).forEach(yr => {
+    [1,2,3,4,5,6,7,8,9,10,11,12].forEach(mo => {
+      const cell = (month_grid[yr] || {})[String(mo)];
+      if (cell && cell.miles > 0) {
+        monthData.push({ yr, mo, miles: cell.miles, runs: cell.runs, hours: cell.hours });
+      }
+    });
+  });
+
+  if (!monthData.length) { el.innerHTML = '<div style="color:var(--muted)">No data</div>'; return; }
+
+  const maxMi = Math.max(...monthData.map(d => d.miles), 0.1);
+  const gap   = 2;
+  const padL  = 36, padR = 8, padT = 12, padB = 28;
+  const chartH = 100;
+  const availW = el.clientWidth || 600;
+  const barW  = Math.max(4, Math.floor((availW - padL - padR) / monthData.length) - gap);
+  const svgW  = padL + padR + monthData.length * (barW + gap);
+  const svgH  = chartH + padT + padB;
+
+  let svg = `<svg width="${svgW}" height="${svgH}" style="display:block;width:100%">`;
+
+  // Grid lines + y-labels
+  [0, 0.25, 0.5, 0.75, 1].forEach(frac => {
+    const y   = padT + chartH * (1 - frac);
+    const val = Math.round(maxMi * frac);
+    svg += `<line x1="${padL}" y1="${y}" x2="${svgW - padR}" y2="${y}" stroke="#1e2d45" stroke-width="1"/>`;
+    svg += `<text x="${padL - 4}" y="${y + 3}" text-anchor="end" font-size="8" fill="#64748b">${val}</text>`;
+  });
+
+  // Bars + labels
+  let lastYr = null;
+  const showAllMonths = barW >= 12;
+  monthData.forEach((d, i) => {
+    const x = padL + i * (barW + gap);
+    const h = Math.max(1, (d.miles / maxMi) * chartH);
+    const y = padT + chartH - h;
+    const alpha = (0.3 + 0.7 * (d.miles / maxMi)).toFixed(2);
+
+    // Year boundary line
+    if (d.yr !== lastYr && i > 0) {
+      svg += `<line x1="${x - 1}" y1="${padT}" x2="${x - 1}" y2="${padT + chartH + 4}" stroke="#2a3a55" stroke-width="1" stroke-dasharray="2,2"/>`;
+    }
+
+    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="1" fill="rgba(16,185,129,${alpha})">
+      <title>${MON_SHORT[d.mo]} ${d.yr}: ${d.miles.toFixed(1)} mi · ${d.runs} run${d.runs !== 1 ? 's' : ''} · ${d.hours.toFixed(1)} hrs</title>
+    </rect>`;
+
+    // X-axis labels: year at Jan, quarterly months if space allows
+    const cx = x + barW / 2;
+    if (d.mo === 1) {
+      svg += `<text x="${cx}" y="${svgH - 14}" text-anchor="middle" font-size="8" fill="#94a3b8" font-weight="bold">${d.yr}</text>`;
+    } else if (showAllMonths || d.mo === 4 || d.mo === 7 || d.mo === 10) {
+      svg += `<text x="${cx}" y="${svgH - 4}" text-anchor="middle" font-size="7" fill="#4b5563">${MON_SHORT[d.mo]}</text>`;
+    }
+    if (d.mo === 1) {
+      svg += `<text x="${cx}" y="${svgH - 4}" text-anchor="middle" font-size="7" fill="#64748b">Jan</text>`;
+    }
+
+    lastYr = d.yr;
+  });
+
+  svg += '</svg>';
+  el.innerHTML = svg;
+}
+
+buildMetricToggle();
+buildAllPatternHms();
+buildHmStats();
+
+buildHeatmap();
+buildYearTable();
+buildRollingCharts();
+buildMonthlyChart();
+
+// ── Activity Log ───────────────────────────────────────────────────
+const MONTH_NAMES_FULL = ["January","February","March","April","May","June",
+                           "July","August","September","October","November","December"];
+
+function buildActivityLog(filterYear) {
+  if (typeof ACTIVITIES_LOG === 'undefined' || !ACTIVITIES_LOG.length) return;
+
+  const allYears = [...new Set(ACTIVITIES_LOG.map(a => parseInt(a.date)))].sort((a,b)=>b-a);
+  // unique years from dates "YYYY-MM-DD"
+  const years = [...new Set(ACTIVITIES_LOG.map(a => a.date.slice(0,4)))].sort((a,b)=>b-a);
+  const activeYear = filterYear || years[0];
+
+  // Year buttons
+  const bar = document.getElementById('log-year-bar');
+  bar.innerHTML = years.map(y =>
+    `<button class="yr-btn${y === activeYear ? ' active' : ''}" onclick="buildActivityLog('${y}')">${y}</button>`
+  ).join('');
+
+  // Filter and group by month
+  const filtered = ACTIVITIES_LOG.filter(a => a.date.startsWith(activeYear));
+  const byMonth = {};
+  filtered.forEach(a => {
+    const mo = a.date.slice(5,7);
+    if (!byMonth[mo]) byMonth[mo] = [];
+    byMonth[mo].push(a);
+  });
+
+  const container = document.getElementById('activity-log');
+  const months = Object.keys(byMonth).sort((a,b) => b.localeCompare(a));
+  const currentMonth = (new Date().getMonth() + 1).toString().padStart(2,'0');
+
+  container.innerHTML = months.map(mo => {
+    const acts = byMonth[mo];
+    const totalMi = acts.reduce((s,a) => s + (a.miles||0), 0);
+    const isOpen = (mo === currentMonth && activeYear === years[0]) || months.length === 1;
+    const monthLabel = MONTH_NAMES_FULL[parseInt(mo)-1] + ' ' + activeYear;
+    const raceCount = acts.filter(a => a.is_race).length;
+    const raceNote = raceCount ? ` · <span style="color:var(--accent4)">${raceCount} race${raceCount>1?'s':''}</span>` : '';
+
+    const rows = acts.map(a => {
+      const dayStr = a.date.slice(8);
+      const typeKey = a.activity_type_key || 'running';
+      const typeLabel = typeKey.replace(/_/g,' ');
+      const elev = a.elev_gain_fmt ? `<span title="elev gain">${a.elev_gain_fmt}ft↑</span>` : '';
+      const hr = a.average_hr ? Math.round(a.average_hr) : '—';
+      const notableIcons = (a.notables || []).map(n => {
+        const tip = n.value ? `${n.label} ${n.window} · ${n.value}` : `${n.label} ${n.window}`;
+        return `<span class="act-n act-n-${n.tier}" title="${tip}">${n.icon}</span>`;
+      }).join('');
+      return `<a class="act-row${a.is_race ? ' is-race' : ''}" href="activity/${a.activity_id}.html">
+        <span class="act-date">${a.date.slice(5).replace('-','/')}</span>
+        <span class="act-name">${a.activity_name}</span>
+        <span class="act-type-badge ${typeKey}">${typeLabel}</span>
+        <span class="act-miles">${a.miles ? a.miles.toFixed(1) : '—'}</span>
+        <span class="act-time">${a.duration_fmt || '—'}</span>
+        <span class="act-pace">${a.pace_mile || '—'}</span>
+        <span class="act-hr">${hr}</span>
+        <span class="act-notables">${notableIcons}</span>
+        <span class="act-link">›</span>
+      </a>`;
+    }).join('');
+
+    return `<div class="month-block${isOpen ? ' open' : ''}">
+      <div class="month-head" onclick="this.parentElement.classList.toggle('open')">
+        <span class="month-name">${monthLabel}</span>
+        <span class="month-stats">
+          <span>${acts.length} run${acts.length!==1?'s':''}</span>
+          <span>${totalMi.toFixed(1)} mi</span>
+          ${raceNote}
+        </span>
+        <span class="month-toggle">▾</span>
+      </div>
+      <div class="month-acts">${rows}</div>
+    </div>`;
+  }).join('');
+}
+
+buildActivityLog();
+</script>
+</body>
+</html>

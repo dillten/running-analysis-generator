@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ activity.activity_name }} &middot; {{ activity.date }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+  /* ── Breadcrumb ── */
+  .breadcrumb {
+    padding: 7px 24px; background: var(--bg2); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; font-size: 11px;
+  }
+  .breadcrumb a { color: var(--muted); text-decoration: none; }
+  .breadcrumb a:hover { color: var(--accent); }
+  .prev-next { display: flex; gap: 6px; margin-left: auto; }
+  .prev-next a {
+    color: var(--muted2); text-decoration: none; font-size: 11px;
+    padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px;
+  }
+  .prev-next a:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ── Hero ── */
+  .hero {
+    background: linear-gradient(160deg, #0d1b2e 0%, #160a2e 60%, #0a1520 100%);
+    border-bottom: 2px solid var(--border);
+    padding: 22px 28px 20px;
+  }
+  html[data-theme="light"] .hero {
+    background: linear-gradient(160deg, #e8f0fe 0%, #ede8fe 60%, #e0eaf5 100%);
+  }
+  .hero-title-row { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .hero-title-row h1 { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; flex: 1; min-width: 0; }
+  .hero-meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
+  .hero-date { color: var(--muted2); font-size: 12px; }
+  .hero-location { color: var(--muted); font-size: 12px; }
+
+  .type-badge {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 2px 7px; border-radius: 3px; border: 1px solid;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; font-weight: 600; white-space: nowrap; flex-shrink: 0;
+  }
+  .type-badge.running, .type-badge.road_running { color: #10b981; border-color: rgba(16,185,129,0.5); }
+  .type-badge.trail_running  { color: #84cc16; border-color: rgba(132,204,22,0.5); }
+  .type-badge.treadmill_running { color: #34d399; border-color: rgba(52,211,153,0.5); }
+  .type-badge.track_running  { color: #4ade80; border-color: rgba(74,222,128,0.5); }
+  .type-badge.ultra_run      { color: #f59e0b; border-color: rgba(245,158,11,0.5); }
+  .race-badge {
+    font-size: 9px; color: var(--accent4); border: 1px solid rgba(245,158,11,0.5);
+    padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.8px;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .pr-badge {
+    font-size: 9px; color: var(--accent); border: 1px solid rgba(0,212,255,0.4);
+    padding: 2px 7px; border-radius: 3px; font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+
+  /* Hero stats: big three */
+  .hero-stats {
+    display: flex; gap: 0; flex-wrap: wrap;
+    border-top: 1px solid var(--border); padding-top: 18px;
+  }
+  .hero-stat {
+    display: flex; flex-direction: column; padding-right: 32px; margin-right: 32px;
+    border-right: 1px solid var(--border);
+  }
+  .hero-stat:last-child { border-right: none; padding-right: 0; margin-right: 0; }
+  .hero-num {
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    font-size: 46px; font-weight: 700; line-height: 1;
+    letter-spacing: -2px; color: var(--text);
+  }
+  .hero-num.c-pace  { color: var(--accent); }
+  .hero-num.c-dist  { color: var(--text); }
+  .hero-num.c-time  { color: var(--accent3); }
+  .hero-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.9px; color: var(--muted); margin-top: 5px; }
+  .hero-sub   { font-size: 11px; color: var(--muted2); margin-top: 1px; }
+
+  /* Secondary stats row */
+  .secondary-stats {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    padding-top: 14px; margin-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .sec-stat { display: flex; flex-direction: column; }
+  .sec-num  { font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 18px; font-weight: 700; color: var(--accent4); }
+  .sec-num.c-green { color: var(--accent3); }
+  .sec-num.c-red   { color: var(--accent5); }
+  .sec-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); margin-top: 2px; }
+
+  /* ── Calorie equivalent ── */
+  .calorie-eq {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted2);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .calorie-eq-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .calorie-eq-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .calorie-eq-label.good { color: var(--accent3); }
+  .calorie-eq-label.bad  { color: var(--accent5); }
+  .calorie-eq-text { font-style: italic; }
+
+  /* ── Body layout ── */
+  .body-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
+    padding: 20px 24px;
+    max-width: 1100px;
+    align-items: start;
+  }
+  .col-main { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+  .col-side { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+  /* ── Notables / Badges ── */
+  .badges-section { }
+  .section-label {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.9px; color: var(--muted);
+    margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .badge-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+  .badge {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 10px 12px; border-radius: 10px; border: 1px solid;
+    background: var(--bg2); text-align: center; min-width: 72px; gap: 3px;
+    cursor: default; transition: transform 0.1s;
+  }
+  .badge:hover { transform: translateY(-1px); }
+  .badge-icon  { font-size: 18px; line-height: 1; }
+  .badge-label { font-size: 9px; font-weight: 700; line-height: 1.2; margin-top: 1px; }
+  .badge-win   { font-size: 8px; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.65; }
+  .badge-val   { font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 10px; opacity: 0.9; }
+
+  .badge-pr        { border-color: rgba(255,215,0,0.4);   color: #ffd700; }
+  .badge-hot       { border-color: rgba(245,158,11,0.4);  color: var(--accent4); }
+  .badge-good      { border-color: rgba(16,185,129,0.4);  color: var(--accent3); }
+  .badge-ok        { border-color: rgba(0,212,255,0.3);   color: var(--accent); }
+  .badge-muted     { border-color: var(--border);         color: var(--muted2); }
+  .badge-milestone { border-color: rgba(167,139,250,0.4); color: #a78bfa; }
+
+  /* ── Chart card ── */
+  .chart-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .chart-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); margin-bottom: 12px; }
+  .chart-legend { display: flex; gap: 14px; margin-bottom: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted2); }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+  .legend-line { width: 18px; height: 2px; border-radius: 1px; flex-shrink: 0; }
+  #activity-chart { width: 100%; height: 220px; display: block; cursor: crosshair; }
+
+  /* ── Mile splits ── */
+  .table-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  .table-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted);
+    padding: 10px 14px 8px; border-bottom: 1px solid var(--border);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  thead th {
+    background: var(--bg3); color: var(--muted); font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 10px;
+    text-align: right; border-bottom: 1px solid var(--border);
+  }
+  thead th:first-child { text-align: left; }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.025); }
+  td { padding: 5px 10px; text-align: right; font-family: 'Atkinson Hyperlegible Mono', monospace; }
+  td:first-child { text-align: left; }
+  td.fast { color: var(--accent3); }
+  td.slow { color: var(--accent5); }
+  td.avg  { color: var(--text); }
+  td.dim  { color: var(--muted2); }
+  td.elev-up   { color: var(--accent4); }
+  td.elev-down { color: #60a5fa; }
+  td.elev-flat { color: var(--muted2); }
+  td.hr-val    { color: #f87171; }
+
+  /* ── Sidebar cards ── */
+  .side-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  }
+  .side-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); margin-bottom: 10px; }
+  .side-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
+  .side-row:last-child { margin-bottom: 0; }
+  .side-key { font-size: 11px; color: var(--muted2); }
+  .side-val { font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 12px; color: var(--text); }
+  .cv-hi    { color: var(--accent); }
+  .cv-green { color: var(--accent3); }
+  .cv-amber { color: var(--accent4); }
+  .cv-muted { color: var(--muted2); }
+
+  /* HR zones */
+  .hr-zones { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+  .zone-row { display: flex; align-items: center; gap: 6px; }
+  .zone-lbl { font-size: 9px; color: var(--muted); width: 16px; text-align: right; flex-shrink: 0; }
+  .zone-bg  { flex: 1; height: 7px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+  .zone-fill { height: 100%; border-radius: 3px; }
+  .zone-pct { font-size: 9px; color: var(--muted2); width: 30px; text-align: right; font-family: 'Atkinson Hyperlegible Mono', monospace; flex-shrink: 0; }
+  .z1 { background: #34d399; } .z2 { background: #10b981; } .z3 { background: #f59e0b; }
+  .z4 { background: #f97316; } .z5 { background: #ef4444; }
+
+  /* ── Best intervals ── */
+  .intervals-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  .intervals-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted);
+    padding: 10px 14px 8px; border-bottom: 1px solid var(--border);
+  }
+  .rank-pill {
+    display: inline-block;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    font-size: 9px; padding: 1px 5px; border-radius: 3px; border: 1px solid;
+    white-space: nowrap;
+  }
+  .rank-1  { color: #ffd700; border-color: rgba(255,215,0,0.4);   background: rgba(255,215,0,0.06); }
+  .rank-top { color: var(--accent3); border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.06); }
+  .rank-mid { color: var(--accent);  border-color: rgba(0,212,255,0.3);  background: rgba(0,212,255,0.04); }
+  .rank-low { color: var(--muted2);  border-color: var(--border); }
+
+  footer { padding: 14px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; }
+
+  @media (max-width: 720px) {
+    .body-layout { grid-template-columns: 1fr; }
+    .hero-stat { border-right: none; padding-right: 0; margin-right: 0; }
+    .hero-num { font-size: 34px; }
+    .col-side { order: -1; }
+  }
+</style>
+<script src="../theme.js"></script>
+</head>
+<body>
+
+<div class="nav">
+  <a href="../index.html">Races</a>
+  <a href="../activities.html">Activities</a>
+  <a href="../map.html">Map</a>
+  <a href="../analysis.html">Analysis</a>
+  <a href="../mile-splits.html">Mile Splits</a>
+  <a href="../trophies.html">Trophy Room</a>
+  <a href="../training.html">Training Plans</a>
+  <a href="../ai-analysis.html">AI Analysis</a>
+  <a href="../best-efforts.html">Best Efforts</a>
+  <a href="../achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<div class="breadcrumb">
+  <a href="../activities.html">← Activities</a>
+  {% if activity.is_race %}<a href="../index.html">⏱ Race Log</a>{% endif %}
+  <div class="prev-next">
+    {% if prev_id %}<a href="{{ prev_id }}.html">‹ Prev</a>{% endif %}
+    {% if next_id %}<a href="{{ next_id }}.html">Next ›</a>{% endif %}
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-title-row">
+    <h1>{{ activity.activity_name }}</h1>
+    <span class="type-badge {{ activity.activity_type_key }}">{{ activity.activity_type_key | replace("_", " ") }}</span>
+    {% if activity.is_race %}<span class="race-badge">Race</span>{% endif %}
+    {% if activity.pr %}<span class="pr-badge">⭐ PR</span>{% endif %}
+  </div>
+  <div class="hero-meta">
+    <span class="hero-date">{{ activity.date }}</span>
+    {% if activity.location_name %}<span class="hero-location">📍 {{ activity.location_name }}</span>{% endif %}
+  </div>
+
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <span class="hero-num c-dist">{{ activity.miles }}</span>
+      <span class="hero-label">Miles</span>
+      <span class="hero-sub">{{ activity.dist_km }} km</span>
+    </div>
+    <div class="hero-stat">
+      <span class="hero-num c-time">{{ activity.duration_fmt }}</span>
+      <span class="hero-label">Time</span>
+      <span class="hero-sub">h:mm:ss</span>
+    </div>
+    <div class="hero-stat">
+      <span class="hero-num c-pace">{{ activity.pace_mile }}</span>
+      <span class="hero-label">Avg Pace</span>
+      <span class="hero-sub">per mile &middot; {{ activity.pace_km }}/km</span>
+    </div>
+  </div>
+
+  <div class="secondary-stats">
+    {% if activity.elevation_gain %}
+    <div class="sec-stat">
+      <span class="sec-num c-green">{{ (activity.elevation_gain * 3.28084) | int }} <small style="font-size:13px;font-weight:400">ft</small></span>
+      <span class="sec-label">Elev Gain</span>
+    </div>
+    {% endif %}
+    {% if activity.elevation_loss %}
+    <div class="sec-stat">
+      <span class="sec-num c-red">{{ (activity.elevation_loss * 3.28084) | int }} <small style="font-size:13px;font-weight:400">ft</small></span>
+      <span class="sec-label">Elev Loss</span>
+    </div>
+    {% endif %}
+    {% if activity.calories %}
+    <div class="sec-stat">
+      <span class="sec-num">{{ activity.calories | int }}</span>
+      <span class="sec-label">Calories</span>
+    </div>
+    {% endif %}
+    {% if activity.average_hr %}
+    <div class="sec-stat">
+      <span class="sec-num c-red">{{ activity.average_hr | int }}</span>
+      <span class="sec-label">Avg HR</span>
+    </div>
+    {% endif %}
+    {% if activity.avg_running_cadence %}
+    <div class="sec-stat">
+      <span class="sec-num">{{ activity.avg_running_cadence | int }}</span>
+      <span class="sec-label">Cadence</span>
+    </div>
+    {% endif %}
+    {% if activity.vo2_max_value %}
+    <div class="sec-stat">
+      <span class="sec-num c-green">{{ "%.1f" | format(activity.vo2_max_value) }}</span>
+      <span class="sec-label">VO₂ Max</span>
+    </div>
+    {% endif %}
+  </div>
+  {% if calorie_healthy or calorie_unhealthy %}
+  <div class="calorie-eq">
+    {% if calorie_healthy %}
+    <div class="calorie-eq-row">
+      <span class="calorie-eq-label good">&#10003; Earn it</span>
+      <span class="calorie-eq-text">{{ calorie_healthy }}</span>
+    </div>
+    {% endif %}
+    {% if calorie_unhealthy %}
+    <div class="calorie-eq-row">
+      <span class="calorie-eq-label bad">&#10005; Ruin it</span>
+      <span class="calorie-eq-text">{{ calorie_unhealthy }}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="body-layout">
+
+  <!-- ── Left: charts + splits ── -->
+  <div class="col-main">
+
+    {% if chart_series %}
+    <div class="chart-card">
+      <div class="chart-title">Pace &amp; Heart Rate by 0.1-Mile Interval</div>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:#10b981"></div> Fast</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#60a5fa"></div> Avg</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:#f87171"></div> Slow</div>
+        <div class="legend-item"><div class="legend-line" style="background:#fb923c"></div> HR</div>
+      </div>
+      <canvas id="activity-chart"></canvas>
+    </div>
+    {% endif %}
+
+    {% if mile_splits %}
+    <div class="table-card">
+      <div class="table-title">Mile Splits &mdash; {{ mile_splits | length }} miles</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Mile</th>
+            <th>Pace</th>
+            <th>GAP</th>
+            <th>Elapsed</th>
+            <th>Elev</th>
+            <th>Avg HR</th>
+            <th>Max HR</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set total_s = mile_splits | map(attribute='split_s') | sum %}
+          {% set avg_s = total_s / (mile_splits | length) %}
+          {% for split in mile_splits %}
+          {% set diff = split.split_s - avg_s %}
+          <tr>
+            <td>{{ split.mile }}</td>
+            <td class="{% if split.split_s < avg_s * 0.985 %}fast{% elif split.split_s > avg_s * 1.015 %}slow{% else %}avg{% endif %}">
+              {{ split.pace_fmt }}
+              <small style="font-size:9px;opacity:0.55;display:block;font-family:'Atkinson Hyperlegible Mono',monospace;" class="{% if diff < -5 %}fast{% elif diff > 5 %}slow{% else %}avg{% endif %}">{{ diff | fmt_split_diff }}</small>
+            </td>
+            <td class="dim">{{ split.gap_fmt }}</td>
+            <td class="dim">{{ split.elapsed_s | fmt_duration }}</td>
+            <td class="{% if split.elev_change_ft is not none %}{% if split.elev_change_ft > 10 %}elev-up{% elif split.elev_change_ft < -10 %}elev-down{% else %}elev-flat{% endif %}{% else %}dim{% endif %}">
+              {% if split.elev_change_ft is not none %}
+                {% if split.elev_change_ft > 0 %}+{{ split.elev_change_ft }}{% else %}{{ split.elev_change_ft }}{% endif %}ft
+              {% else %}—{% endif %}
+            </td>
+            <td class="{% if split.avg_hr %}hr-val{% else %}dim{% endif %}">
+              {{ split.avg_hr if split.avg_hr else '—' }}
+            </td>
+            <td class="dim">{{ split.max_hr if split.max_hr else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if activity_splits %}
+    <div class="intervals-card">
+      <div class="intervals-title">Best Intervals</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Distance</th>
+            <th>Time</th>
+            <th>Pace</th>
+            <th>Position</th>
+            <th>30d</th>
+            <th>1yr</th>
+            <th>All time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sp in activity_splits %}
+          {% set ranks = split_ranks.get(sp.label, {}) %}
+          <tr>
+            <td style="color:var(--muted2);font-family:inherit;">{{ sp.label }}</td>
+            <td>{{ sp.duration_fmt }}</td>
+            <td class="fast">{{ sp.pace_mile }}</td>
+            <td class="dim">
+              {% if sp.start_mi is defined and sp.end_mi is defined %}
+                {{ "%.1f" | format(sp.start_mi) }}&ndash;{{ "%.1f" | format(sp.end_mi) }} mi
+              {% else %}—{% endif %}
+            </td>
+            {% if ranks %}
+              {% set r30 = ranks.month %}
+              {% set r1y = ranks.year %}
+              {% set ra  = ranks.all_time %}
+              <td>
+                <span class="rank-pill {% if r30 == 1 %}rank-1{% elif r30 <= ranks.total_30d * 0.1 %}rank-top{% elif r30 <= ranks.total_30d * 0.33 %}rank-mid{% else %}rank-low{% endif %}">#{{ r30 }}</span>
+              </td>
+              <td>
+                <span class="rank-pill {% if r1y == 1 %}rank-1{% elif r1y <= ranks.total_1yr * 0.1 %}rank-top{% elif r1y <= ranks.total_1yr * 0.33 %}rank-mid{% else %}rank-low{% endif %}">#{{ r1y }}</span>
+              </td>
+              <td>
+                <span class="rank-pill {% if ra == 1 %}rank-1{% elif ra <= ranks.total_all * 0.1 %}rank-top{% elif ra <= ranks.total_all * 0.33 %}rank-mid{% else %}rank-low{% endif %}">#{{ ra }}</span>
+              </td>
+            {% else %}
+              <td class="dim">—</td><td class="dim">—</td><td class="dim">—</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- ── Right: badges + stats ── -->
+  <div class="col-side">
+
+    {% if notables %}
+    <div class="badges-section">
+      <div class="section-label">Highlights</div>
+      <div class="badge-grid">
+        {% for n in notables %}
+        <div class="badge badge-{{ n.tier }}" title="{{ n.label }} {{ n.window }}{% if n.value %} · {{ n.value }}{% endif %}">
+          <span class="badge-icon">{{ n.icon }}</span>
+          <span class="badge-label">{{ n.label }}</span>
+          <span class="badge-win">{{ n.window }}</span>
+          {% if n.value %}<span class="badge-val">{{ n.value }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Heart Rate -->
+    {% if activity.average_hr or activity.max_hr %}
+    <div class="side-card">
+      <div class="side-title">Heart Rate</div>
+      {% if activity.average_hr %}
+      <div class="side-row">
+        <span class="side-key">Avg HR</span>
+        <span class="side-val cv-hi">{{ activity.average_hr | int }} bpm</span>
+      </div>
+      {% endif %}
+      {% if activity.max_hr %}
+      <div class="side-row">
+        <span class="side-key">Max HR</span>
+        <span class="side-val">{{ activity.max_hr | int }} bpm</span>
+      </div>
+      {% endif %}
+      {% if activity.avg_respiration_rate %}
+      <div class="side-row">
+        <span class="side-key">Respiration</span>
+        <span class="side-val cv-muted">{{ "%.1f" | format(activity.avg_respiration_rate) }} br/min</span>
+      </div>
+      {% endif %}
+      {% set zones = activity.hr_zones %}
+      {% if zones and (zones | sum) > 0 %}
+      <div class="hr-zones">
+        {% for i in range(5) %}
+        <div class="zone-row">
+          <span class="zone-lbl">Z{{ i + 1 }}</span>
+          <div class="zone-bg"><div class="zone-fill z{{ i + 1 }}" style="width: {{ zones[i] }}%"></div></div>
+          <span class="zone-pct">{{ zones[i] }}%</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Running Dynamics -->
+    {% if activity.avg_running_cadence or activity.avg_stride_length or activity.avg_power %}
+    <div class="side-card">
+      <div class="side-title">Running Dynamics</div>
+      {% if activity.avg_running_cadence %}
+      <div class="side-row">
+        <span class="side-key">Cadence</span>
+        <span class="side-val cv-green">{{ activity.avg_running_cadence | int }} spm</span>
+      </div>
+      {% endif %}
+      {% if activity.avg_stride_length %}
+      <div class="side-row">
+        <span class="side-key">Stride Length</span>
+        <span class="side-val">{{ (activity.avg_stride_length * 0.0328084) | round(2) }} ft</span>
+      </div>
+      {% endif %}
+      {% if activity.avg_vertical_oscillation %}
+      <div class="side-row">
+        <span class="side-key">Vert Oscillation</span>
+        <span class="side-val cv-muted">{{ "%.1f" | format(activity.avg_vertical_oscillation) }} cm</span>
+      </div>
+      {% endif %}
+      {% if activity.avg_ground_contact_time %}
+      <div class="side-row">
+        <span class="side-key">Ground Contact</span>
+        <span class="side-val cv-muted">{{ activity.avg_ground_contact_time | int }} ms</span>
+      </div>
+      {% endif %}
+      {% if activity.avg_power %}
+      <div class="side-row">
+        <span class="side-key">Avg Power</span>
+        <span class="side-val cv-amber">{{ activity.avg_power | int }} W</span>
+      </div>
+      {% endif %}
+      {% if activity.normalized_power %}
+      <div class="side-row">
+        <span class="side-key">Norm Power</span>
+        <span class="side-val cv-muted">{{ activity.normalized_power | int }} W</span>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Training -->
+    {% if activity.aerobic_training_effect or activity.activity_training_load or activity.vo2_max_value %}
+    <div class="side-card">
+      <div class="side-title">Training</div>
+      {% if activity.aerobic_training_effect %}
+      <div class="side-row">
+        <span class="side-key">Aerobic TE</span>
+        <span class="side-val cv-hi">{{ "%.1f" | format(activity.aerobic_training_effect) }}</span>
+      </div>
+      {% endif %}
+      {% if activity.anaerobic_training_effect %}
+      <div class="side-row">
+        <span class="side-key">Anaerobic TE</span>
+        <span class="side-val">{{ "%.1f" | format(activity.anaerobic_training_effect) }}</span>
+      </div>
+      {% endif %}
+      {% if activity.activity_training_load %}
+      <div class="side-row">
+        <span class="side-key">Training Load</span>
+        <span class="side-val cv-amber">{{ activity.activity_training_load | round(0) | int }}</span>
+      </div>
+      {% endif %}
+      {% if activity.vo2_max_value %}
+      <div class="side-row">
+        <span class="side-key">VO₂ Max</span>
+        <span class="side-val cv-green">{{ "%.1f" | format(activity.vo2_max_value) }}</span>
+      </div>
+      {% endif %}
+      {% if activity.min_temperature is not none and activity.max_temperature is not none %}
+      <div class="side-row">
+        <span class="side-key">Temperature</span>
+        <span class="side-val cv-muted">{{ (activity.min_temperature * 9/5 + 32) | round(0) | int }}–{{ (activity.max_temperature * 9/5 + 32) | round(0) | int }}°F</span>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+
+</div>
+
+<footer>
+  Activity {{ activity.activity_id }} &middot; {{ activity.date }} &middot; Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a>.
+</footer>
+
+{% if chart_series %}
+<script>
+const chartData = {{ chart_series_json | safe }};
+
+const PAD = { top: 14, right: 52, bottom: 36, left: 52 };
+let hoveredIdx = null;
+
+const paces   = chartData.map(d => d.pace);
+const hrData  = chartData.filter(d => d.hr !== null);
+const hasHR   = hrData.length > 0;
+const avgPace = paces.reduce((a, b) => a + b, 0) / paces.length;
+
+const paceMin = Math.min(...paces);
+const paceMax = Math.max(...paces);
+const paceSpan = paceMax - paceMin || 1;
+const pScaleMin = paceMin - paceSpan * 0.12;
+const pScaleMax = paceMax + paceSpan * 0.18;
+
+const hrMin = hasHR ? Math.min(...hrData.map(d => d.hr)) : 0;
+const hrMax = hasHR ? Math.max(...hrData.map(d => d.hr)) : 200;
+const hrSpan = hrMax - hrMin || 1;
+const hScaleMin = hrMin - hrSpan * 0.1;
+const hScaleMax = hrMax + hrSpan * 0.2;
+
+function fmtPace(sec) {
+  const mn = Math.floor(sec / 60), sc = Math.round(sec % 60);
+  return `${mn}:${sc.toString().padStart(2, '0')}`;
+}
+
+function barColor(pace) {
+  const rel = (pace - avgPace) / avgPace;
+  if (rel < -0.04) return '#10b981';
+  if (rel <  0.04) return '#60a5fa';
+  return '#f87171';
+}
+
+function drawChart(canvas) {
+  if (!canvas || !chartData.length) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.getBoundingClientRect().width || 800;
+  const H = 220;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+
+  const cw = W - PAD.left - PAD.right;
+  const ch = H - PAD.top - PAD.bottom;
+  const n = chartData.length;
+  const barW = Math.max(1, cw / n * 0.72);
+
+  const toXc  = i => PAD.left + (i + 0.5) / n * cw;
+  const toYp  = p => PAD.top + (p - pScaleMin) / (pScaleMax - pScaleMin) * ch;
+  const toYhr = h => PAD.top + (hScaleMax - h) / (hScaleMax - hScaleMin) * ch;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // ── Pace grid lines + left labels ──
+  ctx.font = '9px "Atkinson Hyperlegible Mono", monospace';
+  const paceStep = paceSpan > 120 ? 60 : paceSpan > 60 ? 30 : 15;
+  const pStart = Math.ceil(pScaleMin / paceStep) * paceStep;
+  for (let p = pStart; p <= pScaleMax; p += paceStep) {
+    const y = toYp(p);
+    if (y < PAD.top || y > PAD.top + ch) continue;
+    ctx.strokeStyle = '#1e2d45'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cw, y); ctx.stroke();
+    ctx.fillStyle = '#64748b'; ctx.textAlign = 'right';
+    ctx.fillText(fmtPace(p), PAD.left - 4, y + 3);
+  }
+
+  // ── HR right labels ──
+  if (hasHR) {
+    const hrStep = hrSpan > 60 ? 20 : hrSpan > 30 ? 10 : 5;
+    const hStart = Math.ceil(hScaleMin / hrStep) * hrStep;
+    for (let h = hStart; h <= hScaleMax; h += hrStep) {
+      const y = toYhr(h);
+      if (y < PAD.top || y > PAD.top + ch) continue;
+      ctx.fillStyle = 'rgba(251,146,60,0.6)'; ctx.textAlign = 'left';
+      ctx.fillText(h, PAD.left + cw + 4, y + 3);
+    }
+  }
+
+  // ── Mile markers + x-axis labels ──
+  const maxMi = chartData[n - 1].x;
+  const mStep = maxMi > 20 ? 5 : maxMi > 10 ? 2 : 1;
+  ctx.textAlign = 'center'; ctx.fillStyle = '#64748b';
+  for (let m = 1; m <= Math.floor(maxMi); m++) {
+    const x = PAD.left + (m / maxMi) * cw;
+    ctx.strokeStyle = '#1a2235'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + ch); ctx.stroke();
+    if (m % mStep === 0) ctx.fillText(m, x, PAD.top + ch + 18);
+  }
+  ctx.fillText('miles', PAD.left + cw / 2, PAD.top + ch + 30);
+
+  // ── Axis labels ──
+  ctx.save(); ctx.translate(12, PAD.top + ch / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = '#64748b'; ctx.textAlign = 'center';
+  ctx.fillText('pace', 0, 0); ctx.restore();
+  if (hasHR) {
+    ctx.save(); ctx.translate(W - 10, PAD.top + ch / 2); ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = 'rgba(251,146,60,0.7)'; ctx.textAlign = 'center';
+    ctx.fillText('HR (bpm)', 0, 0); ctx.restore();
+  }
+
+  // ── Hover column highlight ──
+  if (hoveredIdx !== null) {
+    const hx = toXc(hoveredIdx);
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(hx - barW / 2 - 2, PAD.top, barW + 4, ch);
+  }
+
+  // ── Pace bars ──
+  chartData.forEach((d, i) => {
+    const x = toXc(i);
+    const barTop  = toYp(d.pace);
+    const barBot  = toYp(pScaleMin);
+    const color   = barColor(d.pace);
+    const alpha   = hoveredIdx === null || i === hoveredIdx ? 0.85 : 0.45;
+    ctx.fillStyle = color + Math.round(alpha * 255).toString(16).padStart(2, '0');
+    ctx.fillRect(x - barW / 2, barTop, barW, barBot - barTop);
+  });
+
+  // ── HR line ──
+  if (hasHR) {
+    ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    let started = false;
+    chartData.forEach((d, i) => {
+      if (d.hr === null) { started = false; return; }
+      const x = toXc(i), y = toYhr(d.hr);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // HR dots at hover
+    if (hoveredIdx !== null && chartData[hoveredIdx].hr !== null) {
+      const d = chartData[hoveredIdx];
+      ctx.fillStyle = '#fb923c';
+      ctx.beginPath(); ctx.arc(toXc(hoveredIdx), toYhr(d.hr), 3.5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // ── Avg pace dashed line ──
+  const avgY = toYp(avgPace);
+  ctx.strokeStyle = 'rgba(0,212,255,0.25)'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(PAD.left, avgY); ctx.lineTo(PAD.left + cw, avgY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(0,212,255,0.6)'; ctx.textAlign = 'left';
+  ctx.fillText(`avg ${fmtPace(avgPace)}`, PAD.left + 4, avgY - 4);
+
+  // ── Hover tooltip ──
+  if (hoveredIdx !== null) {
+    const d = chartData[hoveredIdx];
+    const x = toXc(hoveredIdx);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + ch); ctx.stroke();
+
+    const lines = [`Mile ${d.x}`, `${fmtPace(d.pace)}/mi`];
+    if (d.hr !== null) lines.push(`${d.hr} bpm`);
+
+    ctx.font = '11px "Atkinson Hyperlegible", sans-serif';
+    const maxW = Math.max(...lines.map(l => ctx.measureText(l).width));
+    const boxW = maxW + 18, boxH = lines.length * 16 + 10;
+    let tx = x + 10;
+    if (tx + boxW > W - PAD.right) tx = x - boxW - 8;
+    const ty = PAD.top + 10;
+
+    ctx.fillStyle = 'rgba(10,14,26,0.92)';
+    ctx.beginPath(); ctx.roundRect(tx, ty, boxW, boxH, 5); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1; ctx.stroke();
+
+    lines.forEach((line, li) => {
+      ctx.fillStyle = li === 0 ? '#94a3b8' : li === 1 ? barColor(d.pace) : '#fb923c';
+      ctx.textAlign = 'left';
+      ctx.fillText(line, tx + 9, ty + 16 + li * 16);
+    });
+  }
+}
+
+const canvas = document.getElementById('activity-chart');
+
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx   = e.clientX - rect.left;
+  const cw_  = rect.width - PAD.left - PAD.right;
+  const idx  = Math.floor((mx - PAD.left) / cw_ * chartData.length);
+  const newIdx = Math.max(0, Math.min(chartData.length - 1, idx));
+  if (newIdx !== hoveredIdx) { hoveredIdx = newIdx; drawChart(canvas); }
+});
+
+canvas.addEventListener('mouseleave', () => {
+  hoveredIdx = null;
+  drawChart(canvas);
+});
+
+function init() { drawChart(canvas); }
+init();
+window.addEventListener('resize', () => drawChart(canvas));
+</script>
+{% endif %}
+
+</body>
+</html>

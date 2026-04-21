@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Garmin Race Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  :root {
+    --accent2:  #7c3aed;
+    --pr-gold:  #fbbf24;
+  }
+  code, .mono { font-family: 'Atkinson Hyperlegible Mono', 'Fira Mono', monospace; }
+
+  main { padding: 20px 24px; max-width: 1400px; }
+
+  /* ── Stats bar ── */
+  .statsbar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+
+  .stat-card .label {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 4px;
+  }
+
+  .stat-card .value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+
+  .stat-card .sub {
+    color: var(--muted2);
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  /* ── PR Badges ── */
+  .prs-section { margin-bottom: 22px; }
+
+  .section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    padding-left: 2px;
+  }
+
+  .pr-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .pr-card {
+    background: var(--bg2);
+    border: 1px solid var(--pr-gold);
+    border-radius: 8px;
+    padding: 8px 14px;
+    min-width: 130px;
+  }
+
+  .pr-card .pr-dist {
+    font-size: 10px;
+    color: var(--pr-gold);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 3px;
+  }
+
+  .pr-card .pr-time {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    letter-spacing: -0.5px;
+  }
+
+  .pr-card .pr-pace {
+    font-size: 10px;
+    color: var(--muted2);
+    margin-top: 2px;
+  }
+
+  .pr-card .pr-race {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+  }
+  .pr-race-link {
+    text-decoration: none;
+    display: block;
+  }
+  .pr-race-link:hover { color: var(--accent); }
+
+  /* ── Table ── */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  thead th {
+    background: var(--bg3);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  thead th.right { text-align: right; }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  tbody tr:last-child { border-bottom: none; }
+
+  /* Race data rows */
+  tr.race-row {
+    cursor: pointer;
+  }
+  tr.race-row:hover { background: rgba(255,255,255,0.04); }
+  tr.race-row.is-pr { background: rgba(251, 191, 36, 0.04); }
+  tr.race-row.is-pr:hover { background: rgba(251, 191, 36, 0.08); }
+  tr.race-row.expanded { background: rgba(0, 212, 255, 0.04) !important; }
+
+  td {
+    padding: 7px 10px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  td.right { text-align: right; }
+  td.muted { color: var(--muted2); }
+  td.mono { font-family: 'Atkinson Hyperlegible Mono', monospace; }
+  td.accent { color: var(--accent); font-weight: 700; }
+
+  /* Toggle caret */
+  .row-toggle {
+    display: inline-block;
+    width: 14px;
+    color: var(--muted);
+    font-size: 9px;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+  }
+  tr.expanded .row-toggle { transform: rotate(90deg); color: var(--accent); }
+
+  .race-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .race-name {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: inherit;
+    text-decoration: none;
+  }
+  .race-name:hover { color: var(--accent); }
+
+  .dist-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+
+  .badge-5K    { background: rgba(0,212,255,0.12);  color: var(--accent); }
+  .badge-10K   { background: rgba(16,185,129,0.12); color: var(--accent3); }
+  .badge-hm    { background: rgba(124,58,237,0.12); color: #a78bfa; }
+  .badge-m     { background: rgba(245,158,11,0.12); color: var(--accent4); }
+  .badge-ultra { background: rgba(239,68,68,0.12);  color: var(--accent5); }
+
+  .pr-marker {
+    color: var(--pr-gold);
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
+  /* HR Zone bar */
+  .zone-bar {
+    display: flex;
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    width: 80px;
+    gap: 1px;
+  }
+
+  .z1 { background: #3b82f6; }
+  .z2 { background: #22c55e; }
+  .z3 { background: #f59e0b; }
+  .z4 { background: #f97316; }
+  .z5 { background: #ef4444; }
+
+  /* Type chip */
+  .type-chip {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--muted2);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .type-trail { border-color: #4ade80; color: #4ade80; }
+  .type-ultra { border-color: var(--accent5); color: var(--accent5); }
+  .type-track { border-color: var(--accent4); color: var(--accent4); }
+
+  /* Year separator */
+  tr.year-sep td {
+    padding: 4px 10px 2px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Split detail row ── */
+  tr.split-row { display: none; }
+  tr.split-row.open { display: table-row; }
+
+  tr.split-row td {
+    background: #0c1220;
+    border-top: 1px solid rgba(0,212,255,0.12);
+    border-bottom: 2px solid rgba(0,212,255,0.15);
+    padding: 12px 14px 14px;
+  }
+
+  .split-panel {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .split-panel-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--accent);
+    margin-bottom: 8px;
+    font-weight: 700;
+  }
+
+  /* Split mini-table */
+  .split-table {
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+
+  .split-table th {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    padding: 2px 10px 4px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .split-table th:first-child { text-align: left; padding-left: 0; }
+
+  .split-table td {
+    padding: 3px 10px;
+    white-space: nowrap;
+    border-bottom: none;
+    background: transparent;
+  }
+
+  .split-table td:first-child {
+    color: var(--muted2);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding-left: 0;
+    font-weight: 700;
+  }
+
+  .split-table td.split-time {
+    color: var(--text);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    font-weight: 600;
+    text-align: right;
+    font-size: 12px;
+  }
+
+  .split-table td.split-pace-km {
+    color: var(--accent4);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    text-align: right;
+  }
+
+  .split-table td.split-pace-mi {
+    color: var(--muted2);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    text-align: right;
+  }
+
+  /* Pace sparkbar inside split row */
+  .split-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .split-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--accent4);
+    min-width: 2px;
+    transition: width 0.2s;
+  }
+
+  .table-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    padding-left: 2px;
+  }
+
+  footer {
+    margin-top: 40px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 10px;
+  }
+</style>
+<script src="theme.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>⏱ Race Log</h1>
+  <span class="subtitle">Garmin · {{ races|length }} races · powered by garmin-analysis</span>
+</header>
+
+<div class="nav">
+  <a href="index.html" class="active">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+  <!-- ── Summary Stats ── -->
+  {% set marathon_races = races | selectattr('distance_label', 'equalto', 'Marathon') | list %}
+  {% set hm_races = races | selectattr('dist_km', '>=', 18.0) | selectattr('dist_km', '<', 23.0) | list %}
+  {% set km10_races = races | selectattr('dist_km', '>=', 8.0) | selectattr('dist_km', '<', 12.0) | list %}
+  {% set total_dist = races | sum(attribute='dist_km') %}
+
+  <div class="statsbar">
+    <div class="stat-card">
+      <div class="label">Total Races</div>
+      <div class="value mono">{{ races|length }}</div>
+      <div class="sub">all distances</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Total Distance</div>
+      <div class="value mono">{{ "%.0f"|format(total_dist * 0.621371) }}</div>
+      <div class="sub">miles raced</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Marathons</div>
+      <div class="value mono">{{ marathon_races|length }}</div>
+      <div class="sub">42km races</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Half Marathons</div>
+      <div class="value mono">{{ hm_races|length }}</div>
+      <div class="sub">21km races</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">10K Races</div>
+      <div class="value mono">{{ km10_races|length }}</div>
+      <div class="sub">~10km races</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Years Active</div>
+      <div class="value mono">{{ years|length }}</div>
+      <div class="sub">{{ years[-1] }}–{{ years[0] }}</div>
+    </div>
+  </div>
+
+  <!-- ── Personal Records ── -->
+  {% if prs %}
+  <div class="prs-section">
+    <div class="section-title">Personal Records (by race distance)</div>
+    <div class="pr-grid">
+      {% for dist_label in ['5K', '~10K', '10K', 'Half Marathon', 'Marathon', '50K', 'Ultra'] %}
+        {% if dist_label in prs %}
+          {% set pr = prs[dist_label] %}
+          <div class="pr-card">
+            <div class="pr-dist">{{ dist_label }}</div>
+            <div class="pr-time mono">{{ pr.duration_fmt }}</div>
+            <div class="pr-pace">{{ pr.pace_km }}/km · {{ pr.pace_mile }}/mi</div>
+            <a class="pr-race pr-race-link" href="activity/{{ pr.activity_id }}.html">{{ pr.activity_name }}</a>
+            <div class="pr-race" style="color:var(--muted)">{{ pr.date }}</div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Race Table ── -->
+  <div class="table-title">All Races — click a row to expand best splits</div>
+
+  <div class="table-wrap">
+    <table id="race-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Date</th>
+          <th>Race</th>
+          <th>Type</th>
+          <th class="right">Dist km</th>
+          <th class="right">Dist mi</th>
+          <th class="right">Time</th>
+          <th class="right">Pace /km</th>
+          <th class="right">Pace /mi</th>
+          <th class="right">Avg HR</th>
+          <th class="right">Max HR</th>
+          <th>HR Zones</th>
+          <th class="right">Elev +</th>
+          <th class="right">Cadence</th>
+          <th class="right">VO₂max</th>
+          <th class="right">Cal</th>
+          <th>Location</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set ns = namespace(last_year='') %}
+        {% for r in races %}
+          {% set splits = all_splits.get(r.activity_id, []) %}
+          {% set has_splits = splits | length > 0 %}
+
+          {% if r.year != ns.last_year %}
+            {% set ns.last_year = r.year %}
+            <tr class="year-sep"><td colspan="18">{{ r.year }}</td></tr>
+          {% endif %}
+
+          {# ── Main race row ── #}
+          <tr class="race-row {% if r.pr %}is-pr{% endif %}"
+              data-id="{{ r.activity_id }}"
+              {% if has_splits %}onclick="toggleSplits({{ r.activity_id }})"{% endif %}>
+            <td style="width:18px;padding-right:4px">
+              {% if has_splits %}
+                <span class="row-toggle" id="tog-{{ r.activity_id }}">▶</span>
+              {% endif %}
+            </td>
+            <td class="mono muted">{{ r.date }}</td>
+            <td>
+              <div class="race-name-cell">
+                <a class="race-name" href="activity/{{ r.activity_id }}.html" onclick="event.stopPropagation()" title="{{ r.activity_name }}">{{ r.activity_name }}</a>
+                {% if r.pr %}<span class="pr-marker" title="Personal Record">★</span>{% endif %}
+                {% if r.distance_label in ['5K','~10K'] %}
+                  <span class="dist-badge badge-5K">{{ r.distance_label }}</span>
+                {% elif r.distance_label in ['10K'] %}
+                  <span class="dist-badge badge-10K">{{ r.distance_label }}</span>
+                {% elif 'Half' in r.distance_label or r.distance_label == '~HM' %}
+                  <span class="dist-badge badge-hm">HM</span>
+                {% elif r.distance_label == 'Marathon' or r.distance_label == '~Marathon' %}
+                  <span class="dist-badge badge-m">M</span>
+                {% elif r.distance_label in ['50K','Ultra'] %}
+                  <span class="dist-badge badge-ultra">{{ r.distance_label }}</span>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              {% if r.activity_type_key == 'trail_running' %}
+                <span class="type-chip type-trail">Trail</span>
+              {% elif r.activity_type_key == 'ultra_run' %}
+                <span class="type-chip type-ultra">Ultra</span>
+              {% elif r.activity_type_key == 'track_running' %}
+                <span class="type-chip type-track">Track</span>
+              {% elif r.activity_type_key == 'treadmill_running' %}
+                <span class="type-chip">TM</span>
+              {% else %}
+                <span class="type-chip">Road</span>
+              {% endif %}
+            </td>
+            <td class="right mono accent">{{ r.dist_km_fmt }}</td>
+            <td class="right mono muted">{{ r.dist_miles_fmt }}</td>
+            <td class="right mono" style="color:var(--accent3)">{{ r.duration_fmt }}</td>
+            <td class="right mono" style="color:var(--accent4)">{{ r.pace_km }}</td>
+            <td class="right mono muted">{{ r.pace_mile }}</td>
+            <td class="right mono">{% if r.average_hr %}{{ r.average_hr|int }}{% else %}—{% endif %}</td>
+            <td class="right mono muted">{% if r.max_hr %}{{ r.max_hr|int }}{% else %}—{% endif %}</td>
+            <td>
+              {% if r.hr_zones %}
+              <div class="zone-bar" title="Z1:{{r.hr_zones[0]}}% Z2:{{r.hr_zones[1]}}% Z3:{{r.hr_zones[2]}}% Z4:{{r.hr_zones[3]}}% Z5:{{r.hr_zones[4]}}%">
+                {% for cls, pct in [('z1',r.hr_zones[0]),('z2',r.hr_zones[1]),('z3',r.hr_zones[2]),('z4',r.hr_zones[3]),('z5',r.hr_zones[4])] %}
+                  {% if pct > 0 %}<div class="{{ cls }}" style="width:{{ pct }}%"></div>{% endif %}
+                {% endfor %}
+              </div>
+              {% else %}—{% endif %}
+            </td>
+            <td class="right mono muted">{{ r.elev_gain_fmt }}</td>
+            <td class="right mono muted">{% if r.avg_running_cadence %}{{ r.avg_running_cadence|int }}{% else %}—{% endif %}</td>
+            <td class="right mono muted">{% if r.vo2_max_value %}{{ "%.1f"|format(r.vo2_max_value) }}{% else %}—{% endif %}</td>
+            <td class="right mono muted">{% if r.calories %}{{ r.calories|int }}{% else %}—{% endif %}</td>
+            <td class="muted">{% if r.location_name %}{{ r.location_name }}{% else %}—{% endif %}</td>
+          </tr>
+
+          {# ── Splits detail row ── #}
+          {% if has_splits %}
+          <tr class="split-row" id="splits-{{ r.activity_id }}">
+            <td colspan="18">
+              <div class="split-panel">
+                <div>
+                  <div class="split-panel-label">Best Splits — {{ r.activity_name }}</div>
+                  {# Compute slowest pace_sec for bar scaling #}
+                  {% set max_pace_s = namespace(v=0) %}
+                  {% for s in splits %}
+                    {% set pace_s = s.elapsed_s / (s.target_m / 1000) %}
+                    {% if pace_s > max_pace_s.v %}{% set max_pace_s.v = pace_s %}{% endif %}
+                  {% endfor %}
+
+                  <table class="split-table">
+                    <thead>
+                      <tr>
+                        <th>Segment</th>
+                        <th class="right">Time</th>
+                        <th class="right">Pace /km</th>
+                        <th class="right">Pace /mi</th>
+                        <th style="padding-left:14px">Speed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for s in splits %}
+                        {% set pace_s = s.elapsed_s / (s.target_m / 1000) %}
+                        {% set bar_pct = (max_pace_s.v / pace_s * 80) | int %}
+                      <tr>
+                        <td>{{ s.label }}</td>
+                        <td class="split-time">{{ s.duration_fmt }}</td>
+                        <td class="split-pace-km">{{ s.pace_km }}</td>
+                        <td class="split-pace-mi">{{ s.pace_mile }}</td>
+                        <td style="padding-left:14px">
+                          <div class="split-bar-wrap">
+                            <div class="split-bar" style="width:{{ bar_pct }}px"></div>
+                          </div>
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+<script>
+  function toggleSplits(id) {
+    const splitRow = document.getElementById('splits-' + id);
+    const raceRow  = splitRow.previousElementSibling;  // the race-row just above
+    const tog      = document.getElementById('tog-' + id);
+
+    const isOpen = splitRow.classList.contains('open');
+    splitRow.classList.toggle('open', !isOpen);
+    raceRow.classList.toggle('expanded', !isOpen);
+  }
+</script>
+</body>
+</html>
