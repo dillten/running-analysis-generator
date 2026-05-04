@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Race Predictor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="predictor-data.js?v={{ build_ts }}"></script>
+<style>
+  main { padding: 20px 28px; max-width: 1200px; }
+
+  .section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--muted); margin-bottom: 12px; padding-left: 2px;
+  }
+
+  /* ── Prediction cards ── */
+  .pred-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 900px) {
+    .pred-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .pred-grid { grid-template-columns: 1fr 1fr; }
+  }
+
+  .pred-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 14px; position: relative;
+  }
+  .pred-card.no-data { opacity: 0.45; }
+  .pred-card-dist {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--muted); margin-bottom: 10px;
+  }
+  .pred-time {
+    font-size: 26px; font-weight: 700;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    line-height: 1; margin-bottom: 4px;
+  }
+  .pred-pace {
+    font-size: 12px; font-family: 'Atkinson Hyperlegible Mono', monospace;
+    color: var(--muted2); margin-bottom: 12px;
+  }
+  .pred-divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+  .pred-base-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 10px; color: var(--muted); margin-bottom: 5px;
+  }
+  .pred-base-time {
+    font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 11px;
+  }
+  .pred-delta {
+    font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 10px;
+    font-weight: 700;
+  }
+  .pred-delta.positive { color: var(--accent3); }
+  .pred-delta.negative { color: var(--accent5); }
+  .pred-anchor {
+    font-size: 10px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pred-anchor a { color: var(--muted2); text-decoration: none; }
+  .pred-anchor a:hover { color: var(--accent); }
+  .race-badge {
+    display: inline-block; font-size: 8px; font-weight: 700; text-transform: uppercase;
+    padding: 1px 4px; border-radius: 3px; margin-left: 4px;
+    background: rgba(245,158,11,0.15); color: var(--accent4);
+    vertical-align: middle;
+  }
+  .pred-anchor .race-badge { margin-left: 4px; }
+  .pred-riegel {
+    font-size: 9px; color: var(--muted); margin-top: 3px;
+    font-style: italic;
+  }
+  .pred-model-badge {
+    display: inline-block; font-size: 8px; font-weight: 700; text-transform: uppercase;
+    padding: 1px 5px; border-radius: 3px; margin-bottom: 8px;
+    vertical-align: middle;
+  }
+  .pred-model-badge.vdot_corrected { background: rgba(139,92,246,0.15); color: #8b5cf6; }
+  .pred-model-badge.ultra          { background: rgba(239,68,68,0.15);  color: var(--accent5); }
+  .pred-model-badge.vdot           { background: rgba(0,212,255,0.12);  color: var(--accent); }
+  .pred-model-badge.riegel         { background: rgba(148,163,184,0.15); color: var(--muted2); }
+  .pred-no-data {
+    font-size: 11px; color: var(--muted); text-align: center;
+    padding: 16px 0;
+  }
+  .pred-range {
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    font-size: 10px; color: var(--muted2);
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 4px;
+  }
+  .pred-range-vals { letter-spacing: -0.2px; }
+
+  /* ── Anchor comparison table ── */
+  .sources-wrap {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; margin-bottom: 24px;
+  }
+  .sources-header {
+    padding: 12px 16px 10px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .sources-header h2 { font-size: 14px; font-weight: 700; }
+  .sources-header p  { font-size: 11px; color: var(--muted); }
+  .sources-table { width: 100%; border-collapse: collapse; }
+  .sources-table thead th {
+    background: var(--bg3); padding: 7px 12px; font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);
+    border-bottom: 1px solid var(--border); white-space: nowrap; text-align: right;
+  }
+  .sources-table thead th:first-child { text-align: left; padding-left: 16px; }
+  .sources-table tbody tr { border-bottom: 1px solid var(--border); }
+  .sources-table tbody tr:last-child { border-bottom: none; }
+  .sources-table tbody tr.is-primary { background: rgba(255,255,255,0.02); }
+  .sources-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+  .sources-table td {
+    padding: 7px 12px; font-size: 11px; text-align: right;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; white-space: nowrap;
+  }
+  .sources-table td:first-child { text-align: left; padding-left: 16px; }
+  .sources-table td.dist-col { color: var(--muted2); }
+  .src-time { font-size: 13px; font-weight: 700; }
+  .src-primary-marker {
+    font-size: 8px; font-weight: 700; text-transform: uppercase;
+    padding: 1px 4px; border-radius: 3px; margin-left: 5px; vertical-align: middle;
+    background: rgba(0,212,255,0.12); color: var(--accent);
+  }
+  .src-conf {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    text-transform: uppercase; padding: 2px 6px; border-radius: 3px;
+  }
+  .src-conf.c-cyan   { background: rgba(0,212,255,0.12);  color: var(--accent);  }
+  .src-conf.c-green  { background: rgba(16,185,129,0.12); color: var(--accent3); }
+  .src-conf.c-amber  { background: rgba(245,158,11,0.12); color: var(--accent4); }
+  .src-conf.c-red    { background: rgba(239,68,68,0.12);  color: var(--accent5); }
+  .sources-range-row td {
+    background: var(--bg3); font-size: 10px; color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+  .dist-tabs {
+    display: flex; gap: 5px; padding: 12px 16px 0;
+  }
+  .dist-tab {
+    font-size: 11px; font-weight: 700; padding: 4px 12px;
+    border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg2); color: var(--muted2); cursor: pointer;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; transition: all 0.12s;
+  }
+  .dist-tab:hover { color: var(--text); border-color: var(--muted); }
+  .dist-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+  .dist-panel { display: none; }
+  .dist-panel.active { display: block; }
+
+  /* ── Training context strip ── */
+  .ctx-strip {
+    display: flex; gap: 1px; margin-bottom: 24px;
+    border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--border);
+  }
+  .ctx-box {
+    background: var(--bg2); flex: 1; padding: 12px 16px; min-width: 80px;
+  }
+  .ctx-lbl {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px;
+    color: var(--muted); margin-bottom: 4px;
+  }
+  .ctx-val {
+    font-size: 18px; font-weight: 700;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; line-height: 1;
+  }
+  .ctx-sub { font-size: 9px; color: var(--muted2); margin-top: 2px; }
+  .c-cyan  { color: var(--accent); }
+  .c-green { color: var(--accent3); }
+  .c-amber { color: var(--accent4); }
+  .c-red   { color: var(--accent5); }
+  .c-muted { color: var(--muted2); }
+
+  /* ── History chart ── */
+  .chart-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 24px;
+  }
+  .chart-header { margin-bottom: 14px; }
+  .chart-header h2 { font-size: 14px; font-weight: 700; }
+  .chart-header p  { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .chart-legend {
+    display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; cursor: pointer; user-select: none;
+    color: var(--muted2); transition: color 0.12s;
+  }
+  .legend-item:hover { color: var(--text); }
+  .legend-item.hidden { opacity: 0.35; }
+  .legend-swatch {
+    width: 14px; height: 3px; border-radius: 2px; flex-shrink: 0;
+  }
+  .chart-wrap { position: relative; height: 300px; }
+
+  /* ── Methodology note ── */
+  details.methodology {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 16px; margin-bottom: 24px;
+  }
+  details.methodology summary {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--muted); cursor: pointer;
+    list-style: none;
+  }
+  details.methodology summary::before { content: '▶  '; font-size: 9px; }
+  details.methodology[open] summary::before { content: '▼  '; }
+  details.methodology p, details.methodology li {
+    font-size: 11px; color: var(--muted2); line-height: 1.6; margin-top: 8px;
+  }
+  details.methodology ul { padding-left: 16px; }
+  details.methodology code {
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    font-size: 11px; color: var(--accent);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Race Predictor</h1>
+  <span class="subtitle">Predicted finish times · VDOT / Jack Daniels model · training-adjusted</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <a href="predictor.html" class="active">Predictor</a>
+  <a href="sleep.html">Sleep</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+{% set preds = race_predictions.predictions %}
+{% set ctx   = race_predictions.training_context %}
+{% set dist_colors = {
+    "5K":           "#00d4ff",
+    "10K":          "#10b981",
+    "Half Marathon":"#f59e0b",
+    "Marathon":     "#8b5cf6",
+    "50K":          "#ef4444",
+} %}
+
+<!-- ── Current predictions ── -->
+<p class="section-title">Current predictions &mdash; based on best efforts in the last 12 months</p>
+
+<div class="pred-grid">
+{% for pred in preds %}
+  {% set color = dist_colors.get(pred.distance_label, "#94a3b8") %}
+  <div class="pred-card{% if not pred.has_anchor %} no-data{% endif %}">
+    <div class="pred-card-dist" style="color:{{ color }}">{{ pred.distance_label }}</div>
+
+    {% if pred.has_anchor %}
+      {% set model_labels = {
+          "vdot_corrected": "VDOT +adj",
+          "ultra":          "Ultra model",
+          "vdot":           "VDOT",
+          "riegel":         "Riegel",
+      } %}
+      <span class="pred-model-badge {{ pred.model_used }}">
+        {{ model_labels.get(pred.model_used, pred.model_used) }}
+      </span>
+
+      <div class="pred-time" style="color:{{ color }}">{{ pred.adjusted_time_fmt }}</div>
+      <div class="pred-pace">{{ pred.adjusted_pace_mile }}/mi</div>
+
+      <hr class="pred-divider">
+
+      {% if pred.model_used == "ultra" %}
+        <div class="pred-riegel" style="margin-bottom:6px">derived from marathon × (50K/42.2km)^1.10</div>
+      {% endif %}
+
+      {% if pred.vdot %}
+        <div class="pred-base-row">
+          <span>VDOT</span>
+          <span class="pred-base-time" style="color:{{ color }}">{{ pred.vdot }}</span>
+        </div>
+      {% endif %}
+
+      <div class="pred-base-row">
+        <span>
+          {%- if pred.model_used == "ultra" -%}Ultra base
+          {%- elif pred.vdot -%}VDOT base
+          {%- else -%}Riegel base
+          {%- endif -%}
+        </span>
+        <span class="pred-base-time" style="color:var(--muted2)">{{ pred.base_pace_mile }}/mi</span>
+      </div>
+
+      {% if pred.adjusted_time_s and pred.base_time_s %}
+        {% set delta_s = pred.adjusted_time_s - pred.base_time_s %}
+        {% if delta_s|abs > 5 %}
+          {% set delta_pct = (delta_s / pred.base_time_s * 100)|round(1) %}
+          <div class="pred-base-row">
+            <span>Training adj.</span>
+            <span class="pred-delta {% if delta_s < 0 %}positive{% else %}negative{% endif %}">
+              {% if delta_s < 0 %}↑{% else %}↓{% endif %} {{ delta_pct|abs }}%
+            </span>
+          </div>
+        {% endif %}
+      {% endif %}
+
+      {% if pred.riegel_from and not pred.vdot %}
+        <div class="pred-riegel">extrapolated from {{ pred.riegel_from }}</div>
+      {% elif pred.vdot_anchor_label and pred.vdot_anchor_label != pred.distance_label %}
+        <div class="pred-riegel">VDOT from {{ pred.vdot_anchor_label }} anchor</div>
+      {% endif %}
+
+      {% if pred.range_low_s and pred.range_high_s and (pred.range_high_s - pred.range_low_s) > 10 %}
+        <div class="pred-range">
+          <span>Exp. range</span>
+          <span class="pred-range-vals">{{ pred.range_low_fmt }} – {{ pred.range_high_fmt }}</span>
+        </div>
+      {% endif %}
+
+      {% if pred.anchor_spread_s and pred.anchor_spread_s > 10 and pred.anchor_predictions|length > 1 %}
+        <div class="pred-range">
+          <span>Anchor spread</span>
+          <span class="pred-range-vals">{{ pred.anchor_spread_fmt }} ({{ pred.anchor_predictions|length }} src)</span>
+        </div>
+      {% endif %}
+
+      <hr class="pred-divider">
+
+      <div class="pred-anchor">
+        {% if pred.anchor %}
+          <a href="activity/{{ pred.anchor.activity_id }}.html">{{ pred.anchor.name }}</a>
+          {% if pred.anchor.is_race %}<span class="race-badge">race</span>{% endif %}
+          <br>{{ pred.anchor.date }}
+        {% endif %}
+      </div>
+
+    {% else %}
+      <div class="pred-no-data">No data<br>in last 12 months</div>
+    {% endif %}
+  </div>
+{% endfor %}
+</div>
+
+<!-- ── Training context ── -->
+{% if ctx.has_data %}
+<p class="section-title">Training signals &mdash; last 6 weeks</p>
+<div class="ctx-strip">
+  <div class="ctx-box">
+    <div class="ctx-lbl">Avg weekly miles</div>
+    <div class="ctx-val c-cyan">{{ ctx.avg_weekly_miles }}</div>
+    <div class="ctx-sub">mi / week</div>
+  </div>
+  <div class="ctx-box">
+    <div class="ctx-lbl">Runs</div>
+    <div class="ctx-val c-muted">{{ ctx.run_count_6wk }}</div>
+    <div class="ctx-sub">in 6 weeks</div>
+  </div>
+  {% if ctx.load_trend_pct is not none %}
+  <div class="ctx-box">
+    <div class="ctx-lbl">Load trend</div>
+    <div class="ctx-val {% if ctx.load_trend_pct >= 0 %}c-green{% else %}c-amber{% endif %}">
+      {% if ctx.load_trend_pct >= 0 %}+{% endif %}{{ ctx.load_trend_pct }}%
+    </div>
+    <div class="ctx-sub">vs prev 6 wks</div>
+  </div>
+  {% endif %}
+  {% if ctx.pace_trend_pct is not none %}
+  <div class="ctx-box">
+    <div class="ctx-lbl">Easy pace trend</div>
+    <div class="ctx-val {% if ctx.pace_trend_pct >= 0 %}c-green{% else %}c-amber{% endif %}">
+      {% if ctx.pace_trend_pct >= 0 %}+{% endif %}{{ ctx.pace_trend_pct }}%
+    </div>
+    <div class="ctx-sub">speed vs prev 6 wks</div>
+  </div>
+  {% endif %}
+  <div class="ctx-box">
+    <div class="ctx-lbl">Net adjustment</div>
+    {% set mod = ctx.modifier_pct %}
+    <div class="ctx-val {% if mod <= 0 %}c-green{% elif mod <= 2 %}c-amber{% else %}c-red{% endif %}">
+      {% if mod <= 0 %}↑ {{ (mod * -1)|round(1) }}%{% else %}↓ {{ mod|round(1) }}%{% endif %}
+    </div>
+    <div class="ctx-sub">applied to base</div>
+  </div>
+  {% if ctx.recent_vo2max %}
+  <div class="ctx-box">
+    <div class="ctx-lbl">Recent VO2max</div>
+    <div class="ctx-val c-cyan">{{ ctx.recent_vo2max|round(1) }}</div>
+    <div class="ctx-sub">ml/kg/min</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ── VO2max cross-check ── -->
+{% if ctx.vo2max_predictions and ctx.vo2max_predictions|length > 0 %}
+<p class="section-title">Garmin VO2max reference &mdash; independent cross-check (VO2max {{ ctx.recent_vo2max|round(1) }} × 0.92 = VDOT {{ (ctx.recent_vo2max * 0.92)|round(1) }})</p>
+<div class="ctx-strip">
+  {% for vp in ctx.vo2max_predictions %}
+    {% set color = dist_colors.get(vp.label, '#94a3b8') %}
+  <div class="ctx-box">
+    <div class="ctx-lbl" style="color:{{ color }}">{{ vp.label }}</div>
+    <div class="ctx-val" style="color:{{ color }};font-size:15px">{{ vp.time_fmt }}</div>
+    <div class="ctx-sub">{{ vp.pace }}/mi</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- ── Prediction sources (anchor comparison) ── -->
+{% set any_multi = preds | selectattr('anchor_predictions') | selectattr('anchor_predictions', 'ne', []) | list %}
+{% if any_multi %}
+<p class="section-title">Prediction sources &mdash; what each anchor predicts per distance</p>
+<div class="sources-wrap">
+  <div class="dist-tabs" id="src-tabs">
+    {% for pred in preds %}
+      {% if pred.has_anchor and pred.anchor_predictions %}
+        <button class="dist-tab{% if loop.first %} active{% endif %}"
+                onclick="showSrcPanel('src-{{ loop.index }}', this)"
+                data-color="{{ dist_colors.get(pred.distance_label,'#94a3b8') }}"
+                style="{% if loop.first %}border-color:{{ dist_colors.get(pred.distance_label,'#94a3b8') }};color:{{ dist_colors.get(pred.distance_label,'#94a3b8') }}{% endif %}">
+          {{ pred.distance_label }}
+        </button>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {% for pred in preds %}
+    {% if pred.has_anchor and pred.anchor_predictions %}
+    <div class="dist-panel{% if loop.first %} active{% endif %}" id="src-{{ loop.index }}">
+      {% if pred.model_used == "ultra" %}
+        <p style="font-size:10px;color:var(--muted);padding:8px 16px 0;margin:0">
+          50K is derived from the marathon prediction using <code>(50K/42.2km)^1.10</code>.
+          VDOT and Riegel columns below are theoretical comparisons only.
+        </p>
+      {% elif pred.model_used == "vdot_corrected" %}
+        <p style="font-size:10px;color:var(--muted);padding:8px 16px 0;margin:0">
+          Marathon VDOT predictions include a +7% recreational-runner correction.
+          Riegel column is shown uncorrected for comparison.
+        </p>
+      {% endif %}
+      <table class="sources-table">
+        <thead>
+          <tr>
+            <th>Anchor</th>
+            <th>Anchor result</th>
+            <th>Ratio</th>
+            <th>VDOT pred</th>
+            <th>Riegel pred</th>
+            <th>VDOT</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ap in pred.anchor_predictions %}
+          <tr class="{% if ap.is_primary %}is-primary{% endif %}">
+            <td>
+              {{ ap.anchor_label }}
+              {% if ap.is_race %}<span class="race-badge">race</span>{% endif %}
+              {% if ap.is_primary %}<span class="src-primary-marker">primary</span>{% endif %}
+            </td>
+            <td class="dist-col">{{ ap.anchor_time_fmt }}</td>
+            <td class="dist-col">{{ ap.distance_ratio }}×</td>
+            <td class="src-time" style="color:{{ dist_colors.get(pred.distance_label,'#94a3b8') }}">
+              {{ ap.vdot_fmt if ap.vdot_fmt and ap.vdot_fmt != '-' else '—' }}
+              {% if ap.vdot_fmt and ap.vdot_fmt != '-' %}<br><span style="font-size:9px;color:var(--muted)">{{ ap.vdot_pace }}/mi</span>{% endif %}
+            </td>
+            <td class="dist-col">
+              {{ ap.riegel_fmt }}<br>
+              <span style="font-size:9px;color:var(--muted)">{{ ap.riegel_pace }}/mi</span>
+            </td>
+            <td class="dist-col">{{ ap.vdot_val if ap.vdot_val else '—' }}</td>
+            <td><span class="src-conf {{ ap.confidence.color }}">{{ ap.confidence.label }}</span></td>
+          </tr>
+          {% endfor %}
+          {% if pred.range_low_s and pred.range_high_s and (pred.range_high_s - pred.range_low_s) > 10 %}
+          <tr class="sources-range-row">
+            <td colspan="3">Riegel exponent range (1.04 – 1.08)</td>
+            <td colspan="3">{{ pred.range_low_fmt }} – {{ pred.range_high_fmt }}&nbsp;&nbsp;({{ pred.range_low_pace }} – {{ pred.range_high_pace }}/mi)</td>
+            <td></td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- ── History chart ── -->
+<div class="chart-card">
+  <div class="chart-header">
+    <h2>Predicted fitness over time</h2>
+    <p>Sliding 12-month window &mdash; what would your predicted time have been at each point?</p>
+  </div>
+  <div class="chart-legend" id="pred-legend"></div>
+  <div class="chart-wrap">
+    <canvas id="predChart"></canvas>
+  </div>
+</div>
+
+<!-- ── Methodology ── -->
+<details class="methodology">
+  <summary>How predictions are calculated</summary>
+  <p><strong>Primary model: VDOT / Jack Daniels</strong> &mdash; The primary prediction uses the Jack Daniels running formula, which is grounded in exercise physiology rather than simple curve-fitting:</p>
+  <ul>
+    <li>A VDOT value is derived from each anchor effort using: <code>VO₂_demand(speed) / %VO₂max(duration)</code></li>
+    <li>VO₂ demand: <code>−4.60 + 0.182258·v + 0.000104·v²</code> (v in m/min)</li>
+    <li>%VO₂max at time t: <code>0.8 + 0.1894·e^(−0.01278t) + 0.2989·e^(−0.19326t)</code></li>
+    <li>To predict a new distance, the model binary-searches for the finish time where VO₂ demand equals <code>VDOT × %VO₂max</code></li>
+    <li>VDOT correctly captures that longer races use a lower %VO₂max — this is why Riegel over-predicts marathon times from 5K anchors</li>
+    <li>Race efforts are preferred as anchors since they represent true max effort; training splits may underestimate fitness</li>
+  </ul>
+  <p><strong>Marathon: +7% recreational correction</strong> &mdash; Jack Daniels' VDOT tables were validated on trained and elite runners who can sustain ~80% VO2max for 2–3 hours. Recreational runners average ~7% slower than the tables predict at marathon distance due to glycogen depletion, pacing limits, and lower metabolic efficiency. The correction factor is applied to the VDOT prediction only for the marathon; shorter distances (5K–HM) use raw VDOT.</p>
+  <p><strong>50K: ultra model (off marathon)</strong> &mdash; VO2-based models break down beyond marathon distance because ultra performance is governed by fuel availability, muscular fatigue, and terrain rather than aerobic capacity. The 50K prediction is derived from the marathon prediction using a steeper Riegel exponent: <code>T₅₀ₖ = T_marathon × (50000 / 42195) ^ 1.10</code>. The 1.10 exponent (vs. 1.06 for road races) reflects the steeper fatigue curve in ultra events. The uncertainty range uses exponents 1.08–1.12.</p>
+  <p><strong>Fallback: Riegel formula</strong> &mdash; When VDOT calculation fails (insufficient data), the Riegel formula is used: <code>T₂ = T₁ × (D₂ / D₁) ^ 1.06</code>. The exponent range (1.04–1.08) reflects runner type — endurance specialists trend toward 1.04, speed specialists toward 1.08.</p>
+  <p><strong>Training modifier</strong> &mdash; The model base time is adjusted using two signals from the last 6 weeks vs. the prior 6 weeks:</p>
+  <ul>
+    <li><em>Load trend</em> (35% weight): <code>load_ratio ^ −0.15</code>, clamped to ±10%</li>
+    <li><em>Aerobic pace trend</em> (65% weight): average easy-run pace (avg HR &lt; 155 bpm) vs. prior period, clamped to ±10%</li>
+  </ul>
+  <p>A green "↑" adjustment means recent training suggests you are currently faster than your anchor efforts alone indicate.</p>
+  <p><strong>Garmin VO2max cross-check</strong> &mdash; Your Garmin-estimated VO2max is used as an independent VDOT estimate (scaled by 0.92 to be conservative, since Garmin VO2max tends to be slightly optimistic). This produces a separate row of predictions that you can compare against the anchor-based model.</p>
+  <p><strong>Anchor comparison table</strong> &mdash; Any available recent effort (5K, 10K, HM, Marathon, 50K) can serve as an anchor. Each anchor produces both a VDOT prediction and a Riegel prediction. The confidence rating reflects extrapolation distance — predictions from a nearby distance (HM→Marathon, 2×) are more reliable than from far away (5K→Marathon, 8.4×). The spread across anchors is a natural measure of internal consistency.</p>
+</details>
+
+</main>
+<script src="theme.js?v={{ build_ts }}"></script>
+<script>
+const COLORS = {
+  "5K":           "#00d4ff",
+  "10K":          "#10b981",
+  "Half Marathon":"#f59e0b",
+  "Marathon":     "#8b5cf6",
+  "50K":          "#ef4444",
+};
+
+function fmtDuration(s) {
+  if (s == null) return "-";
+  s = Math.round(s);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+function fmtPaceMile(s, meters) {
+  if (!s || !meters) return "-";
+  const spm = s / meters * 1609.344;
+  const m = Math.floor(spm / 60);
+  const sec = Math.round(spm % 60);
+  return `${m}:${String(sec).padStart(2,'0')}/mi`;
+}
+
+// Build Chart.js datasets — main line + exponent range band per distance
+const datasets = [];
+PREDICTOR_LABELS.forEach(lbl => {
+  const color = COLORS[lbl] || "#94a3b8";
+  const toPoint = key => PREDICTOR_HISTORY
+    .filter(row => row[key] != null)
+    .map(row => ({ x: new Date(row.date).getTime(), y: row[key] }));
+
+  // Low boundary (invisible, used as fill target)
+  datasets.push({
+    label: lbl + '__low',
+    data: toPoint(lbl + '_low'),
+    borderColor: 'transparent', backgroundColor: 'transparent',
+    pointRadius: 0, fill: false, tension: 0.3,
+  });
+  // High boundary fills back to low → creates the shaded band
+  datasets.push({
+    label: lbl + '__high',
+    data: toPoint(lbl + '_high'),
+    borderColor: 'transparent',
+    backgroundColor: color + '18',
+    pointRadius: 0, fill: '-1', tension: 0.3,
+  });
+  // Main prediction line
+  datasets.push({
+    label: lbl,
+    data: toPoint(lbl),
+    borderColor: color, backgroundColor: 'transparent',
+    borderWidth: 2, pointRadius: 3, pointHoverRadius: 5,
+    tension: 0.3, fill: false,
+  });
+});
+
+const ctx = document.getElementById('predChart').getContext('2d');
+const predChart = new Chart(ctx, {
+  type: 'line',
+  data: { datasets },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#0f1c30',
+        borderColor: '#1e2d45',
+        borderWidth: 1,
+        titleColor: '#94a3b8',
+        bodyColor: '#e2e8f0',
+        titleFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
+        bodyFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 11 },
+        filter: item => !item.dataset.label.includes('__'),
+        callbacks: {
+          title: items => new Date(items[0].parsed.x).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          label: item => {
+            const lbl = item.dataset.label;
+            const distM = {"5K":5000,"10K":10000,"Half Marathon":21097.5,"Marathon":42195,"50K":50000}[lbl];
+            const pace = fmtPaceMile(item.parsed.y, distM);
+            return ` ${lbl}: ${fmtDuration(item.parsed.y)}  (${pace})`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        type: 'linear',
+        ticks: {
+          color: '#64748b',
+          font: { size: 10 },
+          maxTicksLimit: 12,
+          callback: v => {
+            const d = new Date(v);
+            return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+          },
+        },
+        grid: { color: 'rgba(255,255,255,0.04)' },
+      },
+      y: {
+        reverse: true,
+        title: { display: true, text: 'Finish time', color: '#64748b', font: { size: 10 } },
+        ticks: {
+          color: '#64748b',
+          font: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
+          callback: v => fmtDuration(v),
+          maxTicksLimit: 8,
+        },
+        grid: { color: 'rgba(255,255,255,0.04)' },
+      },
+    },
+  },
+});
+
+// Legend — only show main line datasets, but toggling also hides the band pairs
+function buildLegend() {
+  const wrap = document.getElementById('pred-legend');
+  datasets.forEach((ds, i) => {
+    if (ds.label.includes('__')) return;
+    const lowIdx  = i - 2;
+    const highIdx = i - 1;
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML =
+      `<span class="legend-swatch" style="background:${ds.borderColor}"></span>${ds.label}`;
+    item.addEventListener('click', () => {
+      const hidden = !predChart.getDatasetMeta(i).hidden;
+      [lowIdx, highIdx, i].forEach(idx => {
+        if (idx >= 0) predChart.getDatasetMeta(idx).hidden = hidden;
+      });
+      item.classList.toggle('hidden', hidden);
+      predChart.update();
+    });
+    wrap.appendChild(item);
+  });
+}
+buildLegend();
+
+// Anchor comparison tab switcher
+function showSrcPanel(id, btn) {
+  document.querySelectorAll('.dist-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#src-tabs .dist-tab').forEach(t => {
+    t.classList.remove('active');
+    t.style.borderColor = '';
+    t.style.color = '';
+  });
+  const panel = document.getElementById(id);
+  if (panel) panel.classList.add('active');
+  if (btn) {
+    btn.classList.add('active');
+    const c = btn.dataset.color;
+    if (c) { btn.style.borderColor = c; btn.style.color = c; }
+  }
+}
+</script>
+</body>
+</html>

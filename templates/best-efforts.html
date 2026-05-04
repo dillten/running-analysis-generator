@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<script src="best-efforts-data.js"></script>
+<script src="best-efforts-data.js?v={{ build_ts }}"></script>
 <style>
   main { padding: 20px 28px; max-width: 1200px; }
 
@@ -105,7 +105,7 @@
     border-top: 1px solid var(--border); color: var(--muted); font-size: 10px;
   }
 </style>
-<script src="theme.js"></script>
+<script src="theme.js?v={{ build_ts }}"></script>
 </head>
 <body>
 
@@ -125,6 +125,8 @@
   <a href="ai-analysis.html">AI Analysis</a>
   <a href="best-efforts.html" class="active">Best Efforts</a>
   <a href="achievements.html">Achievements</a>
+  <a href="predictor.html">Predictor</a>
+  <a href="sleep.html">Sleep</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 

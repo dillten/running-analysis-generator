@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
-<script src="training-data.js"></script>
+<script src="training-data.js?v={{ build_ts }}"></script>
 <style>
   :root {
     --accent2: #7c3aed;
@@ -278,7 +278,7 @@
     margin: 14px 0 6px; text-transform: none; letter-spacing: 0;
   }
 </style>
-<script src="theme.js"></script>
+<script src="theme.js?v={{ build_ts }}"></script>
 </head>
 <body>
 
@@ -298,6 +298,8 @@
   <a href="ai-analysis.html">AI Analysis</a>
   <a href="best-efforts.html">Best Efforts</a>
   <a href="achievements.html">Achievements</a>
+  <a href="predictor.html">Predictor</a>
+  <a href="sleep.html">Sleep</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 

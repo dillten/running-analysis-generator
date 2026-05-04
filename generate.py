@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Garmin running analysis static site generator."""
 
+import math
 import re
 import sqlite3
 import bisect
@@ -13,6 +14,10 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from markupsafe import Markup
 from config import DB_PATH, OLLAMA_URL, OLLAMA_MODEL
+try:
+    from config import FUTURE_RACES as _FUTURE_RACES_CFG
+except ImportError:
+    _FUTURE_RACES_CFG = []
 
 STATIC_DIR     = Path(__file__).parent / "static"
 AI_CACHE_PATH             = Path(__file__).parent / "ai-analysis-cache.json"
@@ -21,7 +26,7 @@ AI_CALORIE_CACHE_PATH     = Path(__file__).parent / "ai-calorie-cache.json"
 AI_CALORIE_STRATA_CACHE_PATH = Path(__file__).parent / "ai-calorie-strata-cache.json"
 ACTIVITIES_MANIFEST_PATH  = Path(__file__).parent / "dist" / "activities-manifest.json"
 BEST_EFFORTS_CACHE_PATH   = Path(__file__).parent / "best-efforts-cache.json"
-ACTIVITIES_MANIFEST_VERSION = "layout-v7"  # bump when activity.html template changes
+ACTIVITIES_MANIFEST_VERSION = "layout-v8"  # bump when activity.html template changes
 
 # Calorie strata: (lower_bound_inclusive, label_description)
 # Each stratum gets one healthy + one unhealthy AI-generated food equivalent.
@@ -1174,6 +1179,212 @@ def fetch_training_blocks(conn: sqlite3.Connection, races: list[dict]) -> list[d
 
 
 # ─────────────────────────────────────────────
+# Future races
+# ─────────────────────────────────────────────
+
+def _slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def prepare_future_races(future_races_cfg: list[dict], prs: dict) -> list[dict]:
+    today = date.today()
+    result = []
+    for cfg in future_races_cfg:
+        race_date = datetime.strptime(cfg["date"], "%Y-%m-%d").date()
+        diff_days  = (race_date - today).days
+        weeks_until    = max(diff_days // 7, 0)
+        days_remainder = max(diff_days % 7, 0)
+        dist_km  = cfg["distance_km"]
+        dist_mi  = dist_km / 1.60934
+        distance_label = classify_distance(dist_km)
+
+        # Parse target time
+        target_time_s = None
+        target_pace_km = target_pace_mile = None
+        raw_target = cfg.get("target_time")
+        if raw_target:
+            parts = raw_target.split(":")
+            if len(parts) == 3:
+                target_time_s = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            elif len(parts) == 2:
+                target_time_s = int(parts[0]) * 60 + int(parts[1])
+            if target_time_s:
+                speed = (dist_km * 1000) / target_time_s
+                target_pace_km   = fmt_pace(speed)
+                target_pace_mile = fmt_pace_mile(speed)
+
+        # Current PR for this distance
+        pr = prs.get(distance_label)
+        pr_pace_mile = pr_pace_km = None
+        if pr and pr.get("average_speed"):
+            pr_pace_km   = fmt_pace(pr["average_speed"])
+            pr_pace_mile = fmt_pace_mile(pr["average_speed"])
+
+        slug = f"{_slugify(cfg['name'])}-{cfg['date']}"
+        result.append({
+            **cfg,
+            "dist_km":         round(dist_km, 3),
+            "dist_miles":      round(dist_mi, 2),
+            "distance_label":  distance_label,
+            "days_until":      diff_days,
+            "weeks_until":     weeks_until,
+            "days_remainder":  days_remainder,
+            "slug":            slug,
+            "target_time_s":   target_time_s,
+            "target_pace_km":  target_pace_km,
+            "target_pace_mile": target_pace_mile,
+            "pr":              pr,
+            "pr_pace_km":      pr_pace_km,
+            "pr_pace_mile":    pr_pace_mile,
+        })
+    return result
+
+
+def fetch_training_block_for_future_race(conn: sqlite3.Connection, race_date_str: str) -> list[dict]:
+    """Return 16 weekly training blocks leading up to a future race date.
+
+    Same structure as fetch_training_blocks weeks[], with an added `is_future` bool.
+    """
+    cursor = conn.cursor()
+    in_clause = ",".join("?" * len(RUNNING_TYPES))
+    today = date.today()
+    race_date = datetime.strptime(race_date_str, "%Y-%m-%d").date()
+    weeks = []
+
+    for w in range(16):
+        day_end   = race_date - timedelta(days=w * 7)
+        day_start = day_end - timedelta(days=6)
+        date_start_s = day_start.isoformat()
+        date_end_s   = (day_end + timedelta(days=1)).isoformat()
+        is_future        = day_start > today
+        is_current_week  = day_start <= today <= day_end
+
+        if is_future:
+            weeks.append({
+                "week_num":       16 - w,
+                "weeks_to_race":  w,
+                "date_start":     date_start_s,
+                "date_end":       day_end.isoformat(),
+                "km":             0.0,
+                "miles":          0.0,
+                "duration_s":     0,
+                "elev_gain_ft":   0,
+                "runs":           0,
+                "training_load":  0.0,
+                "intensity":      0.0,
+                "runs_list":      [],
+                "is_future":      True,
+                "is_current_week": is_current_week,
+            })
+            continue
+
+        cursor.execute(
+            f"""
+            SELECT
+                date(a.start_ts) as run_date,
+                a.activity_name,
+                a.distance,
+                a.duration,
+                a.average_hr,
+                a.activity_training_load,
+                a.hr_time_in_zone_1, a.hr_time_in_zone_2, a.hr_time_in_zone_3,
+                a.hr_time_in_zone_4, a.hr_time_in_zone_5,
+                a.aerobic_training_effect,
+                COALESCE(r.elevation_gain, 0) as elevation_gain,
+                a.event_type_key
+            FROM activity a
+            LEFT JOIN running_agg_metrics r ON a.activity_id = r.activity_id
+            WHERE a.activity_type_key IN ({in_clause})
+              AND a.start_ts >= ?
+              AND a.start_ts < ?
+            ORDER BY a.start_ts
+            """,
+            RUNNING_TYPES + (date_start_s, date_end_s),
+        )
+        runs_raw = cursor.fetchall()
+
+        total_km     = sum((r[2] or 0) for r in runs_raw) / 1000
+        total_load   = sum((r[5] or 0) for r in runs_raw)
+        total_dur    = sum((r[3] or 0) for r in runs_raw)
+        total_elev_m = sum((r[12] or 0) for r in runs_raw)
+        z1 = sum((r[6] or 0) for r in runs_raw)
+        z2 = sum((r[7] or 0) for r in runs_raw)
+        z3 = sum((r[8] or 0) for r in runs_raw)
+        z4 = sum((r[9] or 0) for r in runs_raw)
+        z5 = sum((r[10] or 0) for r in runs_raw)
+
+        runs_list = [
+            {
+                "date":         r[0],
+                "name":         r[1],
+                "km":           round((r[2] or 0) / 1000, 2),
+                "miles":        round((r[2] or 0) / 1609.344, 2),
+                "duration_fmt": fmt_duration(r[3]),
+                "avg_hr":       int(r[4]) if r[4] else None,
+                "load":         round(r[5], 1) if r[5] else None,
+                "intensity":    _intensity_score(r[6], r[7], r[8], r[9], r[10]),
+                "aero_te":      round(r[11], 1) if r[11] else None,
+                "elev_ft":      round((r[12] or 0) * 3.28084),
+                "is_race":      r[13] == "race",
+            }
+            for r in runs_raw
+        ]
+
+        weeks.append({
+            "week_num":        16 - w,
+            "weeks_to_race":   w,
+            "date_start":      date_start_s,
+            "date_end":        day_end.isoformat(),
+            "km":              round(total_km, 2),
+            "miles":           round(total_km / 1.60934, 2),
+            "duration_s":      round(total_dur),
+            "elev_gain_ft":    round(total_elev_m * 3.28084),
+            "runs":            len(runs_raw),
+            "training_load":   round(total_load, 1),
+            "intensity":       _intensity_score(z1, z2, z3, z4, z5),
+            "runs_list":       runs_list,
+            "is_future":       False,
+            "is_current_week": is_current_week,
+        })
+
+    weeks.sort(key=lambda x: x["week_num"])
+    return weeks
+
+
+def build_future_race_pages(conn: sqlite3.Connection, future_races: list[dict], env) -> None:
+    future_dir = DIST_DIR / "future"
+    future_dir.mkdir(exist_ok=True)
+    tmpl = env.get_template("future-race.html")
+
+    for race in future_races:
+        weeks = fetch_training_block_for_future_race(conn, race["date"])
+
+        weekly_targets = race.get("weekly_targets") or []
+        # Pad or trim to 16 entries aligned with week_num 1–16
+        if len(weekly_targets) < 16:
+            weekly_targets = ([0] * (16 - len(weekly_targets))) + weekly_targets
+        weekly_targets = weekly_targets[:16]
+
+        # Attach target to each week dict (week_num 1 = oldest = index 0)
+        for i, w in enumerate(weeks):
+            w["target_miles"] = weekly_targets[i] if i < len(weekly_targets) else 0
+
+        peak_target = max(weekly_targets) if weekly_targets else 1
+        peak_actual = max((w["miles"] for w in weeks if not w["is_future"]), default=0)
+        bar_scale   = max(peak_target, peak_actual, 1)
+
+        html = tmpl.render(
+            race=race,
+            weeks=weeks,
+            bar_scale=bar_scale,
+            peak_target=peak_target,
+            peak_actual=peak_actual,
+        )
+        (future_dir / f"{race['slug']}.html").write_text(html, encoding="utf-8")
+        print(f"  Generated future/{race['slug']}.html")
+
+
+# ─────────────────────────────────────────────
 # Activity heatmap + year summary
 # ─────────────────────────────────────────────
 
@@ -2064,6 +2275,462 @@ def compute_best_efforts_by_distance(
     }
 
 
+# ─────────────────────────────────────────────
+# Race pace predictor
+# ─────────────────────────────────────────────
+
+PRED_TARGETS = [
+    (5_000,     "5K"),
+    (10_000,    "10K"),
+    (21_097.5,  "Half Marathon"),
+    (42_195,    "Marathon"),
+    (50_000,    "50K"),
+]
+_PRED_LABEL_SET  = {lbl for _, lbl in PRED_TARGETS}
+_PRED_LABEL_TO_M = {lbl: m for m, lbl in PRED_TARGETS}
+_RIEGEL_EXP          = 1.06
+_RIEGEL_LOW_EXP      = 1.04   # endurance-biased runner
+_RIEGEL_HIGH_EXP     = 1.08   # speed-biased runner
+# Marathon: VDOT tables were calibrated on trained/elite athletes; recreational runners
+# average ~7% slower than table predictions due to glycogen depletion and pacing limits.
+_MARATHON_CORRECTION = 1.07
+# 50K ultra: fatigue beyond marathon isn't captured by VO2-based models; derive from
+# marathon with a steeper Riegel exponent that reflects fuel/muscle breakdown.
+_ULTRA_EXP           = 1.10
+_ULTRA_LOW_EXP       = 1.08
+_ULTRA_HIGH_EXP      = 1.12
+
+
+def _riegel(elapsed_s: float, from_m: float, to_m: float, exp: float = _RIEGEL_EXP) -> float:
+    return elapsed_s * (to_m / from_m) ** exp
+
+
+def _extrapolation_confidence(anchor_m: float, target_m: float) -> dict:
+    ratio = max(target_m, anchor_m) / min(target_m, anchor_m)
+    if ratio < 1.05:
+        return {"label": "direct", "color": "c-cyan"}
+    elif ratio <= 2.1:
+        return {"label": "high",   "color": "c-green"}
+    elif ratio <= 4.5:
+        return {"label": "medium", "color": "c-amber"}
+    else:
+        return {"label": "low",    "color": "c-red"}
+
+
+def _vo2_at_speed(v_m_per_min: float) -> float:
+    """O2 demand (ml/kg/min) at speed v m/min. Daniels & Gilbert 1979."""
+    return -4.60 + 0.182258 * v_m_per_min + 0.000104 * v_m_per_min ** 2
+
+
+def _pct_vo2max_at_time(t_min: float) -> float:
+    """Fraction of VO2max utilised at race duration t_min. Daniels & Gilbert 1979."""
+    return (0.8 + 0.1894393 * math.exp(-0.012778 * t_min)
+            + 0.2989558 * math.exp(-0.1932605 * t_min))
+
+
+def _compute_vdot(elapsed_s: float, distance_m: float) -> float | None:
+    """VDOT from a known performance. Returns None if inputs are invalid."""
+    if elapsed_s <= 0 or distance_m <= 0:
+        return None
+    t_min = elapsed_s / 60.0
+    v     = distance_m / elapsed_s * 60.0  # m/min
+    pct   = _pct_vo2max_at_time(t_min)
+    if pct <= 0:
+        return None
+    return _vo2_at_speed(v) / pct
+
+
+def _predict_from_vdot(vdot: float, target_m: float) -> float | None:
+    """
+    Binary search for elapsed time (s) that satisfies
+    VO2_demand(target_m / t) = vdot * %VO2max(t).
+    Returns None if vdot is out of a plausible range.
+    """
+    if vdot <= 0:
+        return None
+    # Search between world-record pace and a very slow walk
+    lo = max(60.0, target_m / 6.0)   # ≈ 6 m/s upper speed
+    hi = target_m * 20.0              # ≈ 0.05 m/s lower speed
+    for _ in range(64):
+        mid   = (lo + hi) / 2.0
+        t_min = mid / 60.0
+        v     = target_m / mid * 60.0
+        demand = _vo2_at_speed(v)
+        supply = vdot * _pct_vo2max_at_time(t_min)
+        if demand > supply:
+            lo = mid   # too fast — need more time
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def _build_anchor_pool(
+    all_activities: list[dict],
+    effort_splits: dict[int, list[dict]],
+) -> list[dict]:
+    act_by_id = {a["activity_id"]: a for a in all_activities}
+    pool = []
+    for aid, splits in effort_splits.items():
+        act = act_by_id.get(aid)
+        if not act or not act.get("date"):
+            continue
+        for sp in splits:
+            lbl = sp["label"]
+            if lbl not in _PRED_LABEL_SET:
+                continue
+            spm = sp.get("sec_per_mi", 0)
+            if not (180 <= spm <= 1800):
+                continue
+            target_m = next((m for m, l in PRED_TARGETS if l == lbl), None)
+            if target_m is None:
+                continue
+            pool.append({
+                "date":        act["date"],
+                "label":       lbl,
+                "target_m":    target_m,
+                "elapsed_s":   sp["elapsed_s"],
+                "name":        act.get("activity_name", ""),
+                "activity_id": aid,
+                "is_race":     act.get("is_race", False),
+            })
+    return pool
+
+
+def _best_anchors_in_window(
+    pool: list[dict],
+    start_date: str,
+    end_date: str,
+) -> dict[str, dict]:
+    best: dict[str, dict] = {}
+    for entry in pool:
+        if not (start_date <= entry["date"] <= end_date):
+            continue
+        lbl = entry["label"]
+        if lbl not in best or entry["elapsed_s"] < best[lbl]["elapsed_s"]:
+            best[lbl] = entry
+    return best
+
+
+def _predict_one_snapshot(
+    anchor_pool: list[dict],
+    all_activities: list[dict],
+    as_of: "date",
+) -> "tuple[list[dict], dict]":
+    window_start    = (as_of - timedelta(days=365)).isoformat()
+    window_end      = as_of.isoformat()
+    six_wk_start    = (as_of - timedelta(weeks=6)).isoformat()
+    twelve_wk_start = (as_of - timedelta(weeks=12)).isoformat()
+
+    anchors   = _best_anchors_in_window(anchor_pool, window_start, window_end)
+    available = sorted(anchors.values(), key=lambda a: a["target_m"])
+    # Race anchors preferred for VDOT (they reflect true max effort)
+    race_avail = [a for a in available if a.get("is_race")]
+
+    predictions = []
+    for target_m, target_lbl in PRED_TARGETS:
+        # ── Pick Riegel anchor (any, closest distance) ──────────────────
+        if target_lbl in anchors:
+            riegel_anc  = anchors[target_lbl]
+            riegel_s    = riegel_anc["elapsed_s"]
+            riegel_from = None
+        elif available:
+            riegel_anc  = min(available, key=lambda a: abs(a["target_m"] - target_m))
+            riegel_s    = _riegel(riegel_anc["elapsed_s"], riegel_anc["target_m"], target_m)
+            riegel_from = riegel_anc["label"]
+        else:
+            predictions.append({
+                "distance_label": target_lbl, "distance_m": target_m,
+                "has_anchor": False, "base_time_s": None,
+                "riegel_base_s": None, "vdot": None,
+                "adjusted_time_s": None, "adjusted_time_fmt": "-",
+                "adjusted_pace_mile": "-", "base_pace_mile": "-",
+                "anchor": None, "riegel_from": None, "vdot_anchor_label": None,
+            })
+            continue
+
+        # ── Pick VDOT anchor (prefer races; fall back to training) ───────
+        if target_lbl in anchors and anchors[target_lbl].get("is_race"):
+            vdot_anc = anchors[target_lbl]
+        elif race_avail:
+            vdot_anc = min(race_avail, key=lambda a: abs(a["target_m"] - target_m))
+        elif target_lbl in anchors:
+            vdot_anc = anchors[target_lbl]
+        else:
+            vdot_anc = riegel_anc
+
+        vdot       = _compute_vdot(vdot_anc["elapsed_s"], vdot_anc["target_m"])
+        vdot_base  = _predict_from_vdot(vdot, target_m) if vdot else None
+
+        # ── Distance-specific model selection ────────────────────────────
+        # Marathon: VDOT tables are calibrated on elites; apply recreational correction.
+        # 50K: VO2-based models don't capture ultra fatigue — derive from marathon instead.
+        if target_lbl == "Marathon" and vdot_base:
+            vdot_base  = vdot_base * _MARATHON_CORRECTION
+            base_s     = vdot_base
+            model_used = "vdot_corrected"
+        elif target_lbl == "50K":
+            _marathon_pred = next(
+                (p for p in predictions
+                 if p["distance_label"] == "Marathon" and p.get("has_anchor")),
+                None,
+            )
+            if _marathon_pred and _marathon_pred.get("base_time_s"):
+                base_s     = _marathon_pred["base_time_s"] * (50_000 / 42_195) ** _ULTRA_EXP
+                vdot_base  = base_s
+                vdot       = None  # not applicable for ultra
+                model_used = "ultra"
+            else:
+                base_s     = vdot_base if vdot_base else riegel_s
+                model_used = "vdot" if vdot_base else "riegel"
+        else:
+            base_s     = vdot_base if vdot_base else riegel_s
+            model_used = "vdot" if vdot_base else "riegel"
+
+        anchor = vdot_anc
+
+        predictions.append({
+            "distance_label":    target_lbl,
+            "distance_m":        target_m,
+            "has_anchor":        True,
+            "base_time_s":       round(base_s, 1),
+            "riegel_base_s":     round(riegel_s, 1),
+            "vdot":              round(vdot, 1) if vdot else None,
+            "vdot_anchor_label": vdot_anc["label"] if vdot_anc != riegel_anc else None,
+            "model_used":        model_used,
+            "anchor": {
+                "label":       anchor["label"],
+                "elapsed_s":   anchor["elapsed_s"],
+                "date":        anchor["date"],
+                "name":        anchor["name"],
+                "is_race":     anchor["is_race"],
+                "activity_id": anchor["activity_id"],
+            },
+            "riegel_from":        riegel_from if riegel_anc == vdot_anc else vdot_anc["label"],
+            "adjusted_time_s":    None,
+            "adjusted_time_fmt":  "-",
+            "adjusted_pace_mile": "-",
+            "base_pace_mile":     fmt_pace_from_sec_per_mi(base_s / target_m * 1609.344),
+        })
+
+    # ── Training modifier ────────────────────────────────────────────────
+    recent_acts = [a for a in all_activities if six_wk_start    <= a.get("date", "") <= window_end]
+    prev_acts   = [a for a in all_activities if twelve_wk_start <= a.get("date", "") <  six_wk_start]
+
+    recent_load = sum(a.get("activity_training_load") or 0 for a in recent_acts)
+    prev_load   = sum(a.get("activity_training_load") or 0 for a in prev_acts)
+
+    load_ratio  = recent_load / prev_load if prev_load > 0 else 1.0
+    load_factor = max(0.90, min(1.10, load_ratio ** -0.15)) if load_ratio > 0 else 1.0
+
+    easy_recent = [a for a in recent_acts
+                   if a.get("average_hr") and a["average_hr"] < 155
+                   and a.get("average_speed") and a["average_speed"] > 0]
+    easy_prev   = [a for a in prev_acts
+                   if a.get("average_hr") and a["average_hr"] < 155
+                   and a.get("average_speed") and a["average_speed"] > 0]
+
+    if easy_recent and easy_prev:
+        recent_spd     = sum(a["average_speed"] for a in easy_recent) / len(easy_recent)
+        prev_spd       = sum(a["average_speed"] for a in easy_prev)   / len(easy_prev)
+        pace_ratio     = recent_spd / prev_spd if prev_spd > 0 else 1.0
+        pace_factor    = max(0.90, min(1.10, pace_ratio ** -1.0))
+        pace_trend_pct = round((pace_ratio - 1) * 100, 1)
+    else:
+        pace_factor    = 1.0
+        pace_trend_pct = None
+
+    modifier = load_factor * 0.35 + pace_factor * 0.65
+
+    for pred in predictions:
+        if not pred["has_anchor"] or pred["base_time_s"] is None:
+            continue
+        adj_s = pred["base_time_s"] * modifier
+        pred["adjusted_time_s"]    = round(adj_s, 1)
+        pred["adjusted_time_fmt"]  = fmt_duration(adj_s)
+        pred["adjusted_pace_mile"] = fmt_pace_from_sec_per_mi(adj_s / pred["distance_m"] * 1609.344)
+        pred["base_pace_mile"]     = fmt_pace_from_sec_per_mi(pred["base_time_s"] / pred["distance_m"] * 1609.344)
+
+    # ── Exponent range + multi-anchor comparison ─────────────────────────
+    for pred in predictions:
+        target_m = pred["distance_m"]
+        if not pred["has_anchor"] or pred["adjusted_time_s"] is None:
+            pred.update({
+                "range_low_s": None, "range_high_s": None,
+                "range_low_fmt": "-", "range_high_fmt": "-",
+                "range_low_pace": "-", "range_high_pace": "-",
+                "anchor_predictions": [], "anchor_spread_fmt": "—",
+            })
+            continue
+
+        primary = pred["anchor"]
+        anc_m   = _PRED_LABEL_TO_M.get(primary["label"], target_m)
+
+        # Exponent range — ultra uses marathon-anchored range; others use Riegel spread
+        if pred.get("model_used") == "ultra":
+            _mara_base = next(
+                (p["base_time_s"] for p in predictions
+                 if p["distance_label"] == "Marathon" and p.get("has_anchor")),
+                None,
+            )
+            if _mara_base:
+                lo_s = _mara_base * (50_000 / 42_195) ** _ULTRA_LOW_EXP  * modifier
+                hi_s = _mara_base * (50_000 / 42_195) ** _ULTRA_HIGH_EXP * modifier
+            else:
+                lo_s = hi_s = pred["adjusted_time_s"]
+        else:
+            lo_base = _riegel(primary["elapsed_s"], anc_m, target_m, _RIEGEL_LOW_EXP)
+            hi_base = _riegel(primary["elapsed_s"], anc_m, target_m, _RIEGEL_HIGH_EXP)
+            lo_s = min(lo_base, hi_base) * modifier
+            hi_s = max(lo_base, hi_base) * modifier
+        pred["range_low_s"]    = round(lo_s, 1)
+        pred["range_high_s"]   = round(hi_s, 1)
+        pred["range_low_fmt"]  = fmt_duration(lo_s)
+        pred["range_high_fmt"] = fmt_duration(hi_s)
+        pred["range_low_pace"] = fmt_pace_from_sec_per_mi(lo_s / target_m * 1609.344)
+        pred["range_high_pace"]= fmt_pace_from_sec_per_mi(hi_s / target_m * 1609.344)
+
+        # Per-anchor comparison: show both Riegel and VDOT (or ultra) predictions
+        is_ultra = pred.get("model_used") == "ultra"
+        _mara_pred_base = next(
+            (p["base_time_s"] for p in predictions
+             if p["distance_label"] == "Marathon" and p.get("has_anchor")),
+            None,
+        ) if is_ultra else None
+
+        anchor_preds = []
+        for anc in anchors.values():
+            anc_m2 = _PRED_LABEL_TO_M.get(anc["label"])
+            if anc_m2 is None:
+                continue
+            r_s   = _riegel(anc["elapsed_s"], anc_m2, target_m) * modifier
+            anc_v = _compute_vdot(anc["elapsed_s"], anc_m2)
+            if is_ultra and _mara_pred_base:
+                # For 50K, show the marathon-derived ultra prediction (same for all rows)
+                v_raw = _mara_pred_base
+                v_s   = round(v_raw * modifier, 1) if anc["label"] == primary["label"] else None
+            elif anc_v:
+                v_raw = _predict_from_vdot(anc_v, target_m)
+                if v_raw and pred["distance_label"] == "Marathon":
+                    v_raw = v_raw * _MARATHON_CORRECTION
+                v_s = round(v_raw * modifier, 1) if v_raw else None
+            else:
+                v_s = None
+            conf = _extrapolation_confidence(anc_m2, target_m)
+            anchor_preds.append({
+                "anchor_label":    anc["label"],
+                "anchor_date":     anc["date"],
+                "anchor_time_fmt": fmt_duration(anc["elapsed_s"]),
+                "is_race":         anc.get("is_race", False),
+                "riegel_s":        round(r_s, 1),
+                "riegel_fmt":      fmt_duration(r_s),
+                "riegel_pace":     fmt_pace_from_sec_per_mi(r_s / target_m * 1609.344),
+                "vdot_s":          v_s,
+                "vdot_fmt":        fmt_duration(v_s) if v_s else "-",
+                "vdot_pace":       fmt_pace_from_sec_per_mi(v_s / target_m * 1609.344) if v_s else "-",
+                "vdot_val":        round(anc_v, 1) if anc_v else None,
+                "distance_ratio":  round(max(target_m, anc_m2) / min(target_m, anc_m2), 2),
+                "confidence":      conf,
+                "is_primary":      anc["label"] == primary["label"],
+            })
+        anchor_preds.sort(key=lambda x: x["distance_ratio"])
+        pred["anchor_predictions"] = anchor_preds
+
+        if len(anchor_preds) >= 2:
+            vdot_times   = [p["vdot_s"] for p in anchor_preds if p["vdot_s"]]
+            riegel_times = [p["riegel_s"] for p in anchor_preds]
+            all_times    = vdot_times or riegel_times
+            spread = max(all_times) - min(all_times) if all_times else 0
+            pred["anchor_spread_s"]   = round(spread, 1)
+            pred["anchor_spread_fmt"] = fmt_duration(spread) if spread > 0 else "—"
+        else:
+            pred["anchor_spread_s"]   = 0
+            pred["anchor_spread_fmt"] = "—"
+
+    # ── Context ──────────────────────────────────────────────────────────
+    recent_vo2 = next(
+        (a["vo2_max_value"] for a in sorted(recent_acts, key=lambda x: x.get("date",""), reverse=True)
+         if a.get("vo2_max_value")),
+        None,
+    )
+
+    # VO2max-based predictions: treat Garmin VO2max as VDOT (conservative 0.92 scaling).
+    # Same distance-specific corrections applied as the main model.
+    vo2max_preds = []
+    _marathon_vo2_s = None
+    if recent_vo2 and recent_vo2 > 20:
+        vdot_from_vo2 = recent_vo2 * 0.92
+        for tm, tl in PRED_TARGETS:
+            if tl == "50K" and _marathon_vo2_s:
+                t_s = _marathon_vo2_s * (50_000 / 42_195) ** _ULTRA_EXP
+            else:
+                t_s = _predict_from_vdot(vdot_from_vo2, tm)
+                if t_s and tl == "Marathon":
+                    t_s = t_s * _MARATHON_CORRECTION
+                    _marathon_vo2_s = t_s
+            if t_s:
+                vo2max_preds.append({
+                    "label":    tl,
+                    "time_fmt": fmt_duration(t_s),
+                    "pace":     fmt_pace_from_sec_per_mi(t_s / tm * 1609.344),
+                })
+
+    recent_miles = sum(a.get("miles", 0) for a in recent_acts)
+    context = {
+        "avg_weekly_miles":  round(recent_miles / 6, 1),
+        "run_count_6wk":     len(recent_acts),
+        "load_trend_pct":    round((load_ratio - 1) * 100, 1) if prev_load > 0 else None,
+        "pace_trend_pct":    pace_trend_pct,
+        "modifier_pct":      round((modifier - 1) * 100, 1),
+        "recent_vo2max":     recent_vo2,
+        "vo2max_predictions": vo2max_preds,
+        "has_data":          len(recent_acts) >= 3,
+    }
+    return predictions, context
+
+
+def compute_race_predictions(
+    all_activities: list[dict],
+    effort_splits: dict[int, list[dict]],
+) -> dict:
+    pool = _build_anchor_pool(all_activities, effort_splits)
+    today = date.today()
+    predictions, context = _predict_one_snapshot(pool, all_activities, today)
+    return {"predictions": predictions, "training_context": context}
+
+
+def compute_race_predictions_history(
+    all_activities: list[dict],
+    effort_splits: dict[int, list[dict]],
+    interval_weeks: int = 4,
+) -> list[dict]:
+    pool = _build_anchor_pool(all_activities, effort_splits)
+    if not pool or not all_activities:
+        return []
+
+    dates = [a["date"] for a in all_activities if a.get("date")]
+    if not dates:
+        return []
+
+    first_snapshot = date.fromisoformat(min(dates)) + timedelta(days=365)
+    today = date.today()
+    if first_snapshot > today:
+        return []
+
+    snapshots = []
+    cursor = first_snapshot
+    while cursor <= today:
+        preds, _ = _predict_one_snapshot(pool, all_activities, cursor)
+        row = {"date": cursor.isoformat()}
+        for pred in preds:
+            lbl = pred["distance_label"]
+            row[lbl]              = pred["adjusted_time_s"]  if pred["has_anchor"] else None
+            row[lbl + "_low"]     = pred.get("range_low_s")  if pred["has_anchor"] else None
+            row[lbl + "_high"]    = pred.get("range_high_s") if pred["has_anchor"] else None
+        snapshots.append(row)
+        cursor += timedelta(weeks=interval_weeks)
+    return snapshots
+
+
 def compute_split_ranks(
     activity_id: int,
     activity_date: str,
@@ -2703,6 +3370,7 @@ def build_activity_pages(
         mile_splits: list[dict] = []
         activity_splits: list[dict] = []
         split_ranks: dict[str, dict] = {}
+        lap_splits: list[dict] = []
         if act.get("ts_data_available"):
             chart_series = fetch_activity_chart_series(cursor, int(aid))
             mile_splits  = per_mile_splits_for_activity(cursor, int(aid))
@@ -2712,6 +3380,7 @@ def build_activity_pages(
                 split_ranks = compute_split_ranks(
                     int(aid), act.get("date", ""), all_effort_splits, activities
                 )
+        lap_splits = fetch_lap_splits(cursor, int(aid))
 
         idx     = id_to_idx.get(aid, -1)
         prev_id = sorted_ids[idx - 1] if idx > 0 else None
@@ -2723,6 +3392,7 @@ def build_activity_pages(
             chart_series=chart_series,
             chart_series_json=json.dumps(chart_series),
             mile_splits=mile_splits,
+            lap_splits=lap_splits,
             activity_splits=activity_splits,
             split_ranks=split_ranks,
             prev_id=prev_id,
@@ -2741,6 +3411,190 @@ def build_activity_pages(
         json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
     )
     print(f"  Activity pages: {built} built, {skipped} skipped (unchanged)")
+
+
+def fetch_vo2max_trend(conn: sqlite3.Connection) -> list[dict]:
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT date, vo2_max_generic
+        FROM vo2_max
+        WHERE vo2_max_generic IS NOT NULL
+        ORDER BY date
+    """)
+    return [{"date": r[0], "vo2": round(r[1], 1)} for r in cursor.fetchall()]
+
+
+def fetch_lap_splits(cursor: sqlite3.Cursor, activity_id: int) -> list[dict]:
+    cursor.execute(
+        """
+        SELECT
+            lap_idx,
+            MAX(CASE WHEN name = 'total_distance'   THEN value END) as dist_m,
+            MAX(CASE WHEN name = 'total_timer_time'  THEN value END) as timer_s,
+            MAX(CASE WHEN name = 'avg_heart_rate'    THEN value END) as avg_hr,
+            MAX(CASE WHEN name = 'max_heart_rate'    THEN value END) as max_hr,
+            MAX(CASE WHEN name = 'avg_running_cadence' THEN value END) as cadence,
+            MAX(CASE WHEN name = 'total_ascent'      THEN value END) as ascent_m,
+            MAX(CASE WHEN name = 'total_descent'     THEN value END) as descent_m
+        FROM activity_lap_metric
+        WHERE activity_id = ?
+        GROUP BY lap_idx
+        ORDER BY lap_idx
+        """,
+        (activity_id,),
+    )
+    rows = cursor.fetchall()
+    if len(rows) < 2:
+        return []
+
+    # compute avg pace from all laps with meaningful distance for color coding
+    total_dist = sum(r[1] or 0 for r in rows)
+    total_time = sum(r[2] or 0 for r in rows)
+    avg_sec_per_mi = (total_time / total_dist * 1609.344) if total_dist > 0 else None
+
+    laps = []
+    for idx, (lap_idx, dist_m, timer_s, avg_hr, max_hr, cadence, ascent_m, descent_m) in enumerate(rows, 1):
+        if not dist_m or not timer_s:
+            continue
+        sec_per_mi = timer_s / dist_m * 1609.344
+        min_part   = int(sec_per_mi // 60)
+        sec_part   = int(sec_per_mi % 60)
+        pace_fmt   = f"{min_part}:{sec_part:02d}"
+        dist_mi    = dist_m / 1609.344
+
+        delta = None
+        if avg_sec_per_mi:
+            delta = round(sec_per_mi - avg_sec_per_mi, 1)
+
+        laps.append({
+            "lap":        idx,
+            "dist_mi":    round(dist_mi, 2),
+            "dist_m":     round(dist_m, 0),
+            "timer_s":    round(timer_s, 1),
+            "pace_fmt":   pace_fmt,
+            "sec_per_mi": round(sec_per_mi, 1),
+            "delta_s":    delta,
+            "avg_hr":     int(avg_hr) if avg_hr else None,
+            "max_hr":     int(max_hr) if max_hr else None,
+            "cadence":    int(cadence * 2) if cadence else None,  # strides→steps per min
+            "ascent_ft":  round(ascent_m * 3.28084) if ascent_m else None,
+            "descent_ft": round(descent_m * 3.28084) if descent_m else None,
+        })
+    return laps
+
+
+def fetch_sleep_data(conn: sqlite3.Connection) -> dict:
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            calendar_date,
+            score_overall_value,
+            avg_overnight_hrv,
+            hrv_status,
+            deep_sleep_seconds,
+            rem_sleep_seconds,
+            light_sleep_seconds,
+            sleep_time_seconds,
+            resting_heart_rate,
+            body_battery_change
+        FROM sleep
+        WHERE calendar_date IS NOT NULL
+          AND score_overall_value IS NOT NULL
+        ORDER BY calendar_date
+    """)
+    rows = cursor.fetchall()
+
+    nights = []
+    for row in rows:
+        cal_date, score, hrv, hrv_status, deep_s, rem_s, light_s, total_s, rhr, bb = row
+        nights.append({
+            "date":       cal_date,
+            "score":      int(score),
+            "hrv":        round(float(hrv), 1) if hrv else None,
+            "hrv_status": hrv_status,
+            "deep_s":     int(deep_s  or 0),
+            "rem_s":      int(rem_s   or 0),
+            "light_s":    int(light_s or 0),
+            "total_s":    int(total_s or 0),
+            "rhr":        int(rhr) if rhr else None,
+            "bb":         int(bb)  if bb  is not None else None,
+        })
+
+    # Weekly running mileage (for correlation chart)
+    in_clause = ",".join("?" * len(RUNNING_TYPES))
+    excl = ",".join(str(x) for x in EXCLUDED_ACTIVITY_IDS) if EXCLUDED_ACTIVITY_IDS else "0"
+    cursor.execute(
+        f"""
+        SELECT
+            date(a.start_ts, 'weekday 1', '-7 days') as week_mon,
+            SUM(a.distance) / 1609.344 as miles
+        FROM activity a
+        WHERE a.activity_type_key IN ({in_clause})
+          AND a.start_ts IS NOT NULL
+          AND a.activity_id NOT IN ({excl})
+        GROUP BY week_mon
+        ORDER BY week_mon
+        """,
+        RUNNING_TYPES,
+    )
+    miles_by_week: dict[str, float] = {r[0]: round(r[1], 1) for r in cursor.fetchall()}
+
+    # Aggregate per-week
+    week_nights: dict[str, list] = defaultdict(list)
+    for n in nights:
+        try:
+            dt = date.fromisoformat(n["date"])
+        except ValueError:
+            continue
+        monday = (dt - timedelta(days=dt.weekday())).isoformat()
+        week_nights[monday].append(n)
+
+    weekly = []
+    for wk in sorted(week_nights):
+        ns = week_nights[wk]
+        scores    = [n["score"] for n in ns]
+        hrv_vals  = [n["hrv"]   for n in ns if n["hrv"]]
+        deep_hs   = [n["deep_s"]  / 3600 for n in ns]
+        rem_hs    = [n["rem_s"]   / 3600 for n in ns]
+        light_hs  = [n["light_s"] / 3600 for n in ns]
+        rhr_vals  = [n["rhr"] for n in ns if n["rhr"]]
+        bb_vals   = [n["bb"]  for n in ns if n["bb"] is not None]
+        weekly.append({
+            "week":      wk,
+            "score_avg": round(sum(scores)    / len(scores),    1),
+            "hrv_avg":   round(sum(hrv_vals)  / len(hrv_vals),  1) if hrv_vals  else None,
+            "deep_h":    round(sum(deep_hs)   / len(deep_hs),   2),
+            "rem_h":     round(sum(rem_hs)    / len(rem_hs),    2),
+            "light_h":   round(sum(light_hs)  / len(light_hs),  2),
+            "rhr_avg":   round(sum(rhr_vals)  / len(rhr_vals),  1) if rhr_vals  else None,
+            "bb_avg":    round(sum(bb_vals)   / len(bb_vals),   1) if bb_vals   else None,
+            "miles":     miles_by_week.get(wk, 0.0),
+            "nights":    len(ns),
+        })
+
+    all_scores = [n["score"]              for n in nights]
+    all_hrv    = [n["hrv"]               for n in nights if n["hrv"]]
+    all_hours  = [n["total_s"] / 3600    for n in nights if n["total_s"]]
+    all_deep   = [n["deep_s"]  / 3600    for n in nights if n["total_s"]]
+    all_rem    = [n["rem_s"]   / 3600    for n in nights if n["total_s"]]
+    all_rhr    = [n["rhr"]               for n in nights if n["rhr"]]
+    all_bb     = [n["bb"]                for n in nights if n["bb"] is not None]
+
+    summary = {
+        "nights":     len(nights),
+        "avg_score":  round(sum(all_scores) / len(all_scores), 1) if all_scores else None,
+        "avg_hrv":    round(sum(all_hrv)    / len(all_hrv),    1) if all_hrv    else None,
+        "avg_hours":  round(sum(all_hours)  / len(all_hours),  2) if all_hours  else None,
+        "avg_deep_h": round(sum(all_deep)   / len(all_deep),   2) if all_deep   else None,
+        "avg_rem_h":  round(sum(all_rem)    / len(all_rem),    2) if all_rem    else None,
+        "avg_rhr":    round(sum(all_rhr)    / len(all_rhr),    1) if all_rhr    else None,
+        "avg_bb":     round(sum(all_bb)     / len(all_bb),     1) if all_bb     else None,
+        "date_min":   nights[0]["date"]  if nights else None,
+        "date_max":   nights[-1]["date"] if nights else None,
+    }
+
+    return {"nights": nights, "weekly": weekly, "summary": summary}
 
 
 # ─────────────────────────────────────────────
@@ -2796,16 +3650,39 @@ def build_site():
     notable_counts = sum(len(v) for v in all_notables.values())
     print(f"  {notable_counts} notables across {len(all_activities)} activities")
 
+    print(f"\nComputing race predictions...")
+    race_predictions = compute_race_predictions(all_activities, all_effort_splits)
+    predictor_history = compute_race_predictions_history(all_activities, all_effort_splits)
+    (DIST_DIR / "predictor-data.js").write_text(
+        "const PREDICTOR_HISTORY = " + json.dumps(predictor_history) + ";\n"
+        + "const PREDICTOR_LABELS = " + json.dumps([lbl for _, lbl in PRED_TARGETS]) + ";\n",
+        encoding="utf-8",
+    )
+    print(f"  {len(predictor_history)} history snapshots computed")
+
     print(f"\nGenerating calorie strata with Ollama ({len(CALORIE_STRATA)} strata, skips cached)...")
     calorie_strata = generate_calorie_strata()
 
     print(f"\nBuilding per-activity pages (skips unchanged)...")
     build_activity_pages(conn, all_activities, env, all_notables, calorie_strata, all_effort_splits)
 
-    conn.close()
-
     prs   = compute_prs(races)
     years = sorted({r["year"] for r in races}, reverse=True)
+    future_races = prepare_future_races(_FUTURE_RACES_CFG, prs)
+
+    if future_races:
+        print(f"\nBuilding {len(future_races)} future race page(s)...")
+        build_future_race_pages(conn, future_races, env)
+
+    print(f"\nFetching VO2max trend...")
+    vo2max_trend = fetch_vo2max_trend(conn)
+    print(f"  {len(vo2max_trend)} readings")
+
+    print(f"\nFetching sleep & recovery data...")
+    sleep_data = fetch_sleep_data(conn)
+    print(f"  {sleep_data['summary']['nights']} nights loaded")
+
+    conn.close()
 
     # Build split lookup keyed by label for each race (for analysis template)
     splits_by_label: dict[int, dict[str, dict]] = {}
@@ -2813,15 +3690,22 @@ def build_site():
         splits_by_label[aid] = {s["label"]: s for s in splits}
 
     # Write JS data file separately so it never passes through Jinja2 autoescape
+    race_dates = [
+        {"date": r["date"], "name": r["activity_name"], "dist": r.get("distance_label", "")}
+        for r in races
+    ]
     js_data = {
-        "pace_series": pace_series_data,
+        "pace_series":  pace_series_data,
         "split_labels": [lbl for _, lbl in SPLIT_TARGETS],
+        "vo2max":       vo2max_trend,
+        "race_dates":   race_dates,
     }
     (DIST_DIR / "race-data.js").write_text(
         "const RACE_DATA = " + json.dumps(js_data) + ";",
         encoding="utf-8",
     )
 
+    build_ts = int(datetime.now().timestamp())
     shared = dict(
         races=races,
         prs=prs,
@@ -2831,6 +3715,8 @@ def build_site():
         split_targets=SPLIT_TARGETS,
         split_labels=[lbl for _, lbl in SPLIT_TARGETS],
         analysis_categories=ANALYSIS_CATEGORIES,
+        future_races=future_races,
+        build_ts=build_ts,
     )
 
     # ── races index
@@ -2937,6 +3823,12 @@ def build_site():
     (DIST_DIR / "map.html").write_text(html, encoding="utf-8")
     print(f"Generated map.html")
 
+    # ── predictor page
+    tmpl = env.get_template("predictor.html")
+    html = tmpl.render(**shared, race_predictions=race_predictions)
+    (DIST_DIR / "predictor.html").write_text(html, encoding="utf-8")
+    print(f"Generated predictor.html")
+
     # ── trophy room
     trophy_data = compute_trophy_data(races, prs, all_splits)
     trophy_data["streaks"] = streaks
@@ -2948,6 +3840,16 @@ def build_site():
     html = tmpl.render(**shared, trophy=trophy_data)
     (DIST_DIR / "trophies.html").write_text(html, encoding="utf-8")
     print(f"Generated trophies.html")
+
+    # ── sleep & recovery
+    (DIST_DIR / "sleep-data.js").write_text(
+        "const SLEEP_DATA = " + json.dumps(sleep_data) + ";",
+        encoding="utf-8",
+    )
+    tmpl = env.get_template("sleep.html")
+    html = tmpl.render(**shared)
+    (DIST_DIR / "sleep.html").write_text(html, encoding="utf-8")
+    print(f"Generated sleep.html")
 
 
 if __name__ == "__main__":

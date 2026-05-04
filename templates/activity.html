@@ -248,7 +248,7 @@
     .col-side { order: -1; }
   }
 </style>
-<script src="../theme.js"></script>
+<script src="../theme.js?v={{ build_ts }}"></script>
 </head>
 <body>
 
@@ -263,6 +263,8 @@
   <a href="../ai-analysis.html">AI Analysis</a>
   <a href="../best-efforts.html">Best Efforts</a>
   <a href="../achievements.html">Achievements</a>
+  <a href="../predictor.html">Predictor</a>
+  <a href="../sleep.html">Sleep</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 
@@ -416,6 +418,54 @@
               {{ split.avg_hr if split.avg_hr else '—' }}
             </td>
             <td class="dim">{{ split.max_hr if split.max_hr else '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if lap_splits and lap_splits | length >= 2 %}
+    <div class="table-card">
+      <div class="table-title">Lap Splits &mdash; {{ lap_splits | length }} laps</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Lap</th>
+            <th>Dist</th>
+            <th>Time</th>
+            <th>Pace</th>
+            <th>Avg HR</th>
+            <th>Cadence</th>
+            <th>Elev</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for lap in lap_splits %}
+          {% set d = lap.delta_s %}
+          <tr>
+            <td class="dim">{{ lap.lap }}</td>
+            <td class="dim">
+              {% if lap.dist_mi >= 0.9 and lap.dist_mi <= 1.1 %}
+                1 mi
+              {% elif lap.dist_mi >= 0.58 and lap.dist_mi <= 0.65 %}
+                1 km
+              {% else %}
+                {{ "%.2f" | format(lap.dist_mi) }} mi
+              {% endif %}
+            </td>
+            <td class="dim">{{ lap.timer_s | fmt_duration }}</td>
+            <td class="{% if d is not none %}{% if d < -5 %}fast{% elif d > 5 %}slow{% else %}avg{% endif %}{% endif %}">
+              {{ lap.pace_fmt }}
+              {% if d is not none %}
+              <small style="font-size:9px;opacity:0.55;display:block;font-family:'Atkinson Hyperlegible Mono',monospace;" class="{% if d < -5 %}fast{% elif d > 5 %}slow{% else %}avg{% endif %}">{{ d | fmt_split_diff }}</small>
+              {% endif %}
+            </td>
+            <td class="{% if lap.avg_hr %}hr-val{% else %}dim{% endif %}">{{ lap.avg_hr if lap.avg_hr else '—' }}</td>
+            <td class="dim">{{ lap.cadence if lap.cadence else '—' }}</td>
+            <td class="{% if lap.ascent_ft %}{% if lap.ascent_ft > 20 %}elev-up{% elif lap.descent_ft and lap.descent_ft > 20 %}elev-down{% else %}elev-flat{% endif %}{% else %}dim{% endif %}">
+              {% if lap.ascent_ft and lap.ascent_ft > 1 %}+{{ lap.ascent_ft }}{% elif lap.descent_ft and lap.descent_ft > 1 %}-{{ lap.descent_ft }}{% else %}—{% endif %}ft
+            </td>
           </tr>
           {% endfor %}
         </tbody>

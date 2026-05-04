@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<script src="activities-data.js"></script>
+<script src="activities-data.js?v={{ build_ts }}"></script>
 <style>
   :root {
     /* Heatmap color stops */
@@ -332,7 +332,7 @@
   }
   .log-col-head span:not(:first-child):not(:nth-child(2)) { text-align: right; }
 </style>
-<script src="theme.js"></script>
+<script src="theme.js?v={{ build_ts }}"></script>
 </head>
 <body>
 
@@ -352,6 +352,8 @@
   <a href="ai-analysis.html">AI Analysis</a>
   <a href="best-efforts.html">Best Efforts</a>
   <a href="achievements.html">Achievements</a>
+  <a href="predictor.html">Predictor</a>
+  <a href="sleep.html">Sleep</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 

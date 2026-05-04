@@ -255,6 +255,76 @@
   .type-ultra { border-color: var(--accent5); color: var(--accent5); }
   .type-track { border-color: var(--accent4); color: var(--accent4); }
 
+  /* ── Upcoming Races ── */
+  .upcoming-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 22px;
+  }
+
+  .upcoming-card {
+    display: block;
+    text-decoration: none;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 200px;
+    transition: border-color 0.15s, background 0.15s;
+    color: var(--text);
+  }
+  .upcoming-card:hover {
+    border-color: var(--accent);
+    background: rgba(0,212,255,0.04);
+  }
+
+  .upcoming-name {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .upcoming-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+
+  .upcoming-date {
+    font-size: 11px;
+    color: var(--muted2);
+  }
+
+  .upcoming-location {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .upcoming-countdown {
+    font-size: 24px;
+    font-weight: 700;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+    margin-bottom: 4px;
+  }
+
+  .upcoming-countdown-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--muted);
+  }
+
+  .upcoming-target {
+    font-size: 10px;
+    color: var(--muted2);
+    margin-top: 4px;
+  }
+
   /* Year separator */
   tr.year-sep td {
     padding: 4px 10px 2px;
@@ -381,7 +451,7 @@
     font-size: 10px;
   }
 </style>
-<script src="theme.js"></script>
+<script src="theme.js?v={{ build_ts }}"></script>
 </head>
 <body>
 
@@ -401,6 +471,8 @@
   <a href="ai-analysis.html">AI Analysis</a>
   <a href="best-efforts.html">Best Efforts</a>
   <a href="achievements.html">Achievements</a>
+  <a href="predictor.html">Predictor</a>
+  <a href="sleep.html">Sleep</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 
@@ -444,6 +516,40 @@
       <div class="sub">{{ years[-1] }}–{{ years[0] }}</div>
     </div>
   </div>
+
+  <!-- ── Upcoming Races ── -->
+  {% if future_races %}
+  <div class="prs-section">
+    <div class="section-title">Upcoming Races</div>
+    <div class="upcoming-grid">
+      {% for r in future_races %}
+      <a class="upcoming-card" href="future/{{ r.slug }}.html">
+        <div class="upcoming-name">{{ r.name }}</div>
+        <div class="upcoming-meta">
+          {% if r.distance_label in ['5K','~10K'] %}
+            <span class="dist-badge badge-5K">{{ r.distance_label }}</span>
+          {% elif r.distance_label == '10K' %}
+            <span class="dist-badge badge-10K">{{ r.distance_label }}</span>
+          {% elif 'Half' in r.distance_label or r.distance_label == '~HM' %}
+            <span class="dist-badge badge-hm">HM</span>
+          {% elif 'Marathon' in r.distance_label or '~Marathon' == r.distance_label %}
+            <span class="dist-badge badge-m">M</span>
+          {% elif r.distance_label in ['50K','Ultra'] %}
+            <span class="dist-badge badge-ultra">{{ r.distance_label }}</span>
+          {% endif %}
+          <span class="upcoming-date mono">{{ r.date }}</span>
+        </div>
+        <div class="upcoming-location">{{ r.location }}</div>
+        <div class="upcoming-countdown" data-race-date="{{ r.date }}">{{ r.weeks_until }}w {{ r.days_remainder }}d</div>
+        <div class="upcoming-countdown-label">until race day</div>
+        {% if r.target_time %}
+        <div class="upcoming-target">Target: {{ r.target_time }}</div>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 
   <!-- ── Personal Records ── -->
   {% if prs %}
@@ -626,6 +732,17 @@
 </footer>
 
 <script>
+  // Live countdown for upcoming race cards
+  document.querySelectorAll('[data-race-date]').forEach(el => {
+    const race = new Date(el.dataset.raceDate + 'T00:00:00');
+    const diffDays = Math.ceil((race - new Date()) / 86400000);
+    if (diffDays <= 0) {
+      el.textContent = 'Race day!';
+    } else {
+      el.textContent = Math.floor(diffDays / 7) + 'w ' + (diffDays % 7) + 'd';
+    }
+  });
+
   function toggleSplits(id) {
     const splitRow = document.getElementById('splits-' + id);
     const raceRow  = splitRow.previousElementSibling;  // the race-row just above

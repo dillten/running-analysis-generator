@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sleep & Recovery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="sleep-data.js?v={{ build_ts }}"></script>
+<style>
+  main { padding: 20px 24px; max-width: 1300px; }
+
+  /* ── Summary stat cards ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .stat-label {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); margin-bottom: 4px;
+  }
+  .stat-value {
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1;
+  }
+  .stat-sub { font-size: 10px; color: var(--muted2); margin-top: 3px; }
+
+  /* ── Range filter ── */
+  .range-bar {
+    display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .range-btn {
+    font-family: inherit; font-size: 11px; font-weight: 700;
+    padding: 5px 14px; border-radius: 5px;
+    border: 1px solid var(--border); background: var(--bg2); color: var(--muted2);
+    cursor: pointer; transition: all 0.12s;
+  }
+  .range-btn:hover { color: var(--text); border-color: var(--muted); }
+  .range-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+
+  /* ── Chart cards ── */
+  .charts-2col {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-bottom: 16px;
+  }
+  @media (max-width: 860px) { .charts-2col { grid-template-columns: 1fr; } }
+
+  .chart-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 16px;
+  }
+  .chart-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; flex-wrap: wrap; gap: 6px;
+  }
+  .chart-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .chart-hint  { font-size: 10px; color: var(--muted); }
+  .chart-wrap  { position: relative; height: 240px; }
+  .chart-wrap-tall { position: relative; height: 300px; }
+
+  /* ── HRV status pill ── */
+  .hrv-legend {
+    display: flex; gap: 12px; flex-wrap: wrap; font-size: 10px; color: var(--muted2);
+    margin-top: 6px;
+  }
+  .hrv-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
+
+  /* ── Calendar heatmap ── */
+  .heatmap-section { margin-bottom: 20px; }
+  .heatmap-year-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); margin: 14px 0 6px; padding-left: 4px;
+  }
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(53, 13px);
+    grid-template-rows: repeat(7, 13px);
+    gap: 2px;
+    font-size: 0;
+  }
+  .hm-cell {
+    width: 13px; height: 13px; border-radius: 2px;
+    cursor: default; position: relative;
+  }
+  .hm-cell:hover::after {
+    content: attr(data-tip);
+    position: absolute; bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text); font-size: 10px; font-family: inherit;
+    padding: 3px 7px; border-radius: 4px; white-space: nowrap;
+    z-index: 10; pointer-events: none;
+  }
+  .hm-empty   { background: var(--bg3); }
+  .hm-exc     { background: #10b981; }
+  .hm-good    { background: #34d399; opacity: 0.85; }
+  .hm-fair    { background: #f59e0b; opacity: 0.8; }
+  .hm-poor    { background: #f97316; opacity: 0.75; }
+  .hm-bad     { background: #ef4444; opacity: 0.7; }
+  .hm-none    { background: var(--bg3); opacity: 0.4; }
+
+  .heatmap-legend {
+    display: flex; gap: 8px; align-items: center; font-size: 10px;
+    color: var(--muted); margin-top: 8px; flex-wrap: wrap;
+  }
+  .heatmap-legend .hm-cell { cursor: default; }
+  .heatmap-legend .hm-cell:hover::after { display: none; }
+</style>
+<script src="theme.js?v={{ build_ts }}"></script>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div>
+      <div class="site-name">Garmin Running Analysis</div>
+      <div class="subtitle">Sleep &amp; Recovery</div>
+    </div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">◐</button>
+  </div>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <a href="predictor.html">Predictor</a>
+  <a href="sleep.html" class="active">Sleep</a>
+</div>
+
+<main>
+
+<!-- Summary cards -->
+<div class="stats-row" id="stats-row">
+  <!-- filled by JS -->
+</div>
+
+<!-- Time range filter -->
+<div class="range-bar">
+  <button class="range-btn" data-days="90">90 days</button>
+  <button class="range-btn" data-days="180">6 months</button>
+  <button class="range-btn active" data-days="365">1 year</button>
+  <button class="range-btn" data-days="730">2 years</button>
+  <button class="range-btn" data-days="0">All time</button>
+</div>
+
+<!-- Sleep score + stages -->
+<div class="charts-2col">
+  <div class="chart-card" style="margin-bottom:0">
+    <div class="chart-header">
+      <span class="chart-title">Sleep Score</span>
+      <span class="chart-hint">weekly average</span>
+    </div>
+    <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+  </div>
+  <div class="chart-card" style="margin-bottom:0">
+    <div class="chart-header">
+      <span class="chart-title">Sleep Stages</span>
+      <span class="chart-hint">weekly avg hours · deep / REM / light</span>
+    </div>
+    <div class="chart-wrap"><canvas id="stagesChart"></canvas></div>
+  </div>
+</div>
+
+<!-- Mileage vs sleep score -->
+<div class="chart-card">
+  <div class="chart-header">
+    <span class="chart-title">Weekly Mileage vs Sleep Score</span>
+    <span class="chart-hint">bars = miles run · line = avg sleep score</span>
+  </div>
+  <div class="chart-wrap-tall"><canvas id="corrChart"></canvas></div>
+</div>
+
+<!-- HRV (sparse — Dec 2025+) -->
+<div class="chart-card" id="hrv-card">
+  <div class="chart-header">
+    <span class="chart-title">HRV</span>
+    <span class="chart-hint" id="hrv-hint">nightly avg overnight HRV · recent data only</span>
+  </div>
+  <div class="chart-wrap"><canvas id="hrvChart"></canvas></div>
+  <div class="hrv-legend">
+    <span><span class="hrv-dot" style="background:#10b981"></span>Balanced</span>
+    <span><span class="hrv-dot" style="background:#f59e0b"></span>Unbalanced</span>
+    <span><span class="hrv-dot" style="background:#ef4444"></span>Low</span>
+    <span><span class="hrv-dot" style="background:#64748b"></span>No data</span>
+  </div>
+</div>
+
+<!-- Calendar heatmap -->
+<div class="chart-card heatmap-section">
+  <div class="chart-header">
+    <span class="chart-title">Sleep Score Calendar</span>
+    <span class="chart-hint">each cell = one night</span>
+  </div>
+  <div id="heatmap-container"></div>
+  <div class="heatmap-legend" style="margin-top:10px">
+    <span style="color:var(--muted2)">Score:</span>
+    <span class="hm-cell hm-exc" style="display:inline-block"></span><span>≥90</span>
+    <span class="hm-cell hm-good" style="display:inline-block"></span><span>80–89</span>
+    <span class="hm-cell hm-fair" style="display:inline-block"></span><span>70–79</span>
+    <span class="hm-cell hm-poor" style="display:inline-block"></span><span>60–69</span>
+    <span class="hm-cell hm-bad" style="display:inline-block"></span><span>&lt;60</span>
+    <span class="hm-cell hm-none" style="display:inline-block"></span><span>No data</span>
+  </div>
+</div>
+
+</main>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+<script>
+const { nights, weekly, summary } = SLEEP_DATA;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function fmtHours(h) {
+  const hr = Math.floor(h), mn = Math.round((h - hr) * 60);
+  return mn ? `${hr}h ${mn}m` : `${hr}h`;
+}
+
+function scoreClass(score) {
+  if (score === null) return 'hm-none';
+  if (score >= 90)   return 'hm-exc';
+  if (score >= 80)   return 'hm-good';
+  if (score >= 70)   return 'hm-fair';
+  if (score >= 60)   return 'hm-poor';
+  return 'hm-bad';
+}
+
+function scoreColor(score) {
+  if (score === null) return 'rgba(100,116,139,0.3)';
+  if (score >= 90)   return '#10b981';
+  if (score >= 80)   return '#34d399';
+  if (score >= 70)   return '#f59e0b';
+  if (score >= 60)   return '#f97316';
+  return '#ef4444';
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function mondayOf(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const dow = d.getDay(); // 0=Sun
+  const diff = (dow === 0) ? -6 : 1 - dow;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+// ── Summary cards ────────────────────────────────────────────────────────────
+function renderStats(nightsSlice) {
+  const scores = nightsSlice.map(n => n.score).filter(Boolean);
+  const hrv    = nightsSlice.map(n => n.hrv).filter(Boolean);
+  const hours  = nightsSlice.filter(n => n.total_s).map(n => n.total_s / 3600);
+  const deep   = nightsSlice.filter(n => n.total_s).map(n => n.deep_s / 3600);
+  const rem    = nightsSlice.filter(n => n.total_s).map(n => n.rem_s / 3600);
+  const rhr    = nightsSlice.map(n => n.rhr).filter(Boolean);
+  const bb     = nightsSlice.map(n => n.bb).filter(v => v !== null);
+
+  const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+  const cards = [
+    { label: 'Sleep Score', val: scores.length ? avg(scores).toFixed(1) : '—', sub: `/ 100 · ${scores.length} nights` },
+    { label: 'Avg Duration', val: hours.length ? fmtHours(avg(hours)) : '—', sub: 'total sleep time' },
+    { label: 'Deep Sleep',   val: deep.length  ? fmtHours(avg(deep))  : '—', sub: deep.length && hours.length ? `${(avg(deep)/avg(hours)*100).toFixed(0)}% of sleep` : '' },
+    { label: 'REM Sleep',    val: rem.length   ? fmtHours(avg(rem))   : '—', sub: rem.length && hours.length ? `${(avg(rem)/avg(hours)*100).toFixed(0)}% of sleep` : '' },
+    { label: 'Resting HR',   val: rhr.length   ? avg(rhr).toFixed(1)  : '—', sub: 'bpm' },
+    { label: 'HRV',          val: hrv.length   ? avg(hrv).toFixed(1)  : '—', sub: hrv.length ? `ms · ${hrv.length} nights` : 'no data in range' },
+    { label: 'Body Battery', val: bb.length    ? (avg(bb) >= 0 ? '+' : '') + avg(bb).toFixed(1) : '—', sub: 'avg overnight change' },
+  ];
+
+  const row = document.getElementById('stats-row');
+  row.innerHTML = cards.map(c => `
+    <div class="stat-card">
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-value">${c.val}</div>
+      <div class="stat-sub">${c.sub}</div>
+    </div>`).join('');
+}
+
+// ── Filter helpers ────────────────────────────────────────────────────────────
+let activeDays = 365;
+
+function cutoffDate(days) {
+  if (!days) return null;
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function filteredNights(days) {
+  const cut = cutoffDate(days);
+  return cut ? nights.filter(n => n.date >= cut) : nights;
+}
+
+function filteredWeekly(days) {
+  const cut = cutoffDate(days);
+  return cut ? weekly.filter(w => w.week >= cut) : weekly;
+}
+
+// ── Charts ───────────────────────────────────────────────────────────────────
+let scoreChart, stagesChart, corrChart, hrvChart;
+
+const CHART_DEFAULTS = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+  scales: {
+    x: { ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 12 },
+         grid: { color: 'rgba(255,255,255,0.04)' } },
+    y: { ticks: { color: '#64748b', font: { size: 10 } },
+         grid: { color: 'rgba(255,255,255,0.04)' } },
+  },
+};
+
+function buildScoreChart(wks) {
+  const labels = wks.map(w => w.week);
+  const data   = wks.map(w => w.score_avg);
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  if (scoreChart) scoreChart.destroy();
+  scoreChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: '#00d4ff',
+        backgroundColor: 'rgba(0,212,255,0.07)',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        tension: 0.3,
+        fill: true,
+      }],
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        tooltip: {
+          ...CHART_DEFAULTS.plugins.tooltip,
+          callbacks: { label: ctx => `Score: ${ctx.parsed.y.toFixed(1)}` },
+        },
+      },
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        y: { ...CHART_DEFAULTS.scales.y, min: 40, max: 100,
+             ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: v => v } },
+      },
+    },
+  });
+}
+
+function buildStagesChart(wks) {
+  const labels = wks.map(w => w.week);
+  const ctx = document.getElementById('stagesChart').getContext('2d');
+  if (stagesChart) stagesChart.destroy();
+  stagesChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Deep',  data: wks.map(w => w.deep_h  ?? 0), backgroundColor: '#8b5cf6', stack: 'sleep' },
+        { label: 'REM',   data: wks.map(w => w.rem_h   ?? 0), backgroundColor: '#00d4ff', stack: 'sleep' },
+        { label: 'Light', data: wks.map(w => w.light_h ?? 0), backgroundColor: '#1e3a5f', stack: 'sleep' },
+      ],
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: {
+        ...CHART_DEFAULTS.plugins,
+        legend: { display: true, position: 'bottom',
+          labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10, padding: 10 } },
+        tooltip: { mode: 'index', intersect: false,
+          callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}h` } },
+      },
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        x: { ...CHART_DEFAULTS.scales.x, stacked: true },
+        y: { ...CHART_DEFAULTS.scales.y, stacked: true,
+             ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: v => `${v}h` } },
+      },
+    },
+  });
+}
+
+function buildCorrChart(wks) {
+  const labels = wks.map(w => w.week);
+  const ctx = document.getElementById('corrChart').getContext('2d');
+  if (corrChart) corrChart.destroy();
+  corrChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Miles',
+          data: wks.map(w => w.miles),
+          backgroundColor: 'rgba(16,185,129,0.35)',
+          borderColor: 'rgba(16,185,129,0.6)',
+          borderWidth: 1,
+          yAxisID: 'yMiles',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: 'Sleep Score',
+          data: wks.map(w => w.score_avg),
+          borderColor: '#00d4ff',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.3,
+          yAxisID: 'yScore',
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'bottom',
+          labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10, padding: 10 } },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
+             grid: { color: 'rgba(255,255,255,0.04)' } },
+        yMiles: {
+          type: 'linear', position: 'left',
+          ticks: { color: '#10b981', font: { size: 10 }, callback: v => `${v}mi` },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+        },
+        yScore: {
+          type: 'linear', position: 'right',
+          min: 50, max: 100,
+          ticks: { color: '#00d4ff', font: { size: 10 } },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+}
+
+function buildHrvChart(ns) {
+  const hrvNights = ns.filter(n => n.hrv !== null).slice(-180);
+  document.getElementById('hrv-card').style.display = hrvNights.length ? '' : 'none';
+  if (!hrvNights.length) return;
+
+  const labels = hrvNights.map(n => n.date);
+  const values = hrvNights.map(n => n.hrv);
+  const colors = hrvNights.map(n => {
+    if (n.hrv_status === 'BALANCED')   return '#10b981';
+    if (n.hrv_status === 'UNBALANCED') return '#f59e0b';
+    if (n.hrv_status === 'LOW')        return '#ef4444';
+    return '#64748b';
+  });
+
+  const hint = document.getElementById('hrv-hint');
+  hint.textContent = `${hrvNights[0].date} – ${hrvNights[hrvNights.length-1].date} · ${hrvNights.length} nights`;
+
+  const ctx = document.getElementById('hrvChart').getContext('2d');
+  if (hrvChart) hrvChart.destroy();
+  hrvChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'HRV (ms)',
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 0,
+        borderRadius: 2,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `HRV: ${ctx.parsed.y} ms`,
+            afterLabel: ctx => {
+              const n = hrvNights[ctx.dataIndex];
+              return n.hrv_status ? `Status: ${n.hrv_status}` : '';
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 9 }, maxTicksLimit: 10 },
+             grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#64748b', font: { size: 10 }, callback: v => `${v}ms` },
+             grid: { color: 'rgba(255,255,255,0.04)' } },
+      },
+    },
+  });
+}
+
+// ── Calendar heatmap ─────────────────────────────────────────────────────────
+function buildHeatmap() {
+  const byDate = {};
+  for (const n of nights) byDate[n.date] = n;
+
+  const container = document.getElementById('heatmap-container');
+  container.innerHTML = '';
+
+  if (!nights.length) return;
+
+  const yearMin = parseInt(nights[0].date.slice(0, 4));
+  const yearMax = parseInt(nights[nights.length - 1].date.slice(0, 4));
+
+  const DOW_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+  for (let yr = yearMax; yr >= yearMin; yr--) {
+    const label = document.createElement('div');
+    label.className = 'heatmap-year-label';
+    label.textContent = yr;
+    container.appendChild(label);
+
+    // Find Monday of first ISO week for this year
+    const jan1 = new Date(`${yr}-01-01T00:00:00`);
+    const jan1Dow = jan1.getDay(); // 0=Sun
+    const daysToMon = jan1Dow === 0 ? -6 : 1 - jan1Dow;
+    const startMon = new Date(jan1);
+    startMon.setDate(startMon.getDate() + daysToMon);
+
+    // We need a 7×53 grid. Lay out cells by column (week) then row (day)
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:2px;';
+
+    for (let wk = 0; wk < 53; wk++) {
+      const col = document.createElement('div');
+      col.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+      for (let dow = 0; dow < 7; dow++) {
+        const offset = wk * 7 + dow;
+        const cellDate = new Date(startMon);
+        cellDate.setDate(cellDate.getDate() + offset);
+        const dateStr = cellDate.toISOString().slice(0, 10);
+        const cellYr = cellDate.getFullYear();
+
+        const cell = document.createElement('div');
+        cell.className = 'hm-cell';
+
+        if (cellYr !== yr) {
+          cell.classList.add('hm-empty');
+        } else {
+          const n = byDate[dateStr];
+          if (n) {
+            cell.classList.add(scoreClass(n.score));
+            const hrs = fmtHours(n.total_s / 3600);
+            cell.setAttribute('data-tip', `${dateStr} · Score ${n.score} · ${hrs}${n.hrv ? ' · HRV '+n.hrv+'ms' : ''}`);
+          } else {
+            cell.classList.add('hm-none');
+          }
+        }
+        col.appendChild(cell);
+      }
+      wrap.appendChild(col);
+    }
+    container.appendChild(wrap);
+  }
+}
+
+// ── Wire up ───────────────────────────────────────────────────────────────────
+function refresh(days) {
+  activeDays = days;
+  const ns = filteredNights(days);
+  const wks = filteredWeekly(days);
+  renderStats(ns);
+  buildScoreChart(wks);
+  buildStagesChart(wks);
+  buildCorrChart(wks);
+  buildHrvChart(ns);
+}
+
+document.querySelectorAll('.range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    refresh(parseInt(btn.dataset.days));
+  });
+});
+
+buildHeatmap();
+refresh(365);
+</script>
+</body>
+</html>

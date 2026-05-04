@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-<script src="race-data.js"></script>
+<script src="race-data.js?v={{ build_ts }}"></script>
 <style>
   :root { --pr-gold: #fbbf24; }
   .mono { font-family: 'Atkinson Hyperlegible Mono', 'Fira Mono', monospace; }
@@ -158,7 +158,7 @@
     color: var(--muted); font-size: 10px;
   }
 </style>
-<script src="theme.js"></script>
+<script src="theme.js?v={{ build_ts }}"></script>
 </head>
 <body>
 
@@ -178,6 +178,8 @@
   <a href="ai-analysis.html">AI Analysis</a>
   <a href="best-efforts.html">Best Efforts</a>
   <a href="achievements.html">Achievements</a>
+  <a href="predictor.html">Predictor</a>
+  <a href="sleep.html">Sleep</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 
@@ -222,6 +224,18 @@
     <canvas id="paceChart"></canvas>
   </div>
   <div class="legend-wrap" id="chart-legend"></div>
+</div>
+
+<!-- ── VO2max Trend ── -->
+<div class="section-title">VO&#8322; Max Trend</div>
+<div class="chart-card">
+  <div class="chart-header">
+    <span class="chart-title">VO&#8322; Max Over Time</span>
+    <span class="chart-hint">Daily Garmin estimate · race dates marked &#9679;</span>
+  </div>
+  <div class="chart-wrap">
+    <canvas id="vo2Chart"></canvas>
+  </div>
 </div>
 
 <!-- ── Split Comparison Table ── -->
@@ -471,6 +485,73 @@ document.getElementById('cat-tabs').addEventListener('click', e => {
   const labelsRaw = first.dataset.labels;
   const catLabels = labelsRaw === 'ALL' ? null : labelsRaw.split(',');
   applyCategory(first.dataset.cat, catLabels);
+})();
+
+// ── VO2max chart ─────────────────────────────────────────────────────────────
+(function() {
+  const vo2data   = RACE_DATA.vo2max   || [];
+  const raceDates = RACE_DATA.race_dates || [];
+  if (!vo2data.length) return;
+
+  const raceDateSet = new Set(raceDates.map(r => r.date));
+
+  const labels = vo2data.map(d => d.date);
+  const values = vo2data.map(d => d.vo2);
+
+  // Point colors: race-day = gold, else transparent
+  const pointColors = labels.map(d => raceDateSet.has(d) ? '#fbbf24' : 'transparent');
+  const pointRadii  = labels.map(d => raceDateSet.has(d) ? 4 : 0);
+
+  const ctx2 = document.getElementById('vo2Chart').getContext('2d');
+  new Chart(ctx2, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'VO₂ Max',
+        data: values,
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16,185,129,0.06)',
+        borderWidth: 1.5,
+        pointRadius: pointRadii,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+        pointHoverRadius: 5,
+        tension: 0.2,
+        fill: true,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            title: items => {
+              const d = items[0].label;
+              const race = raceDates.find(r => r.date === d);
+              return race ? `${d} · ${race.name}` : d;
+            },
+            label: ctx => `VO₂ Max: ${ctx.parsed.y.toFixed(1)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+        },
+        y: {
+          min: 40,
+          ticks: { color: '#64748b', font: { size: 10 } },
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+        },
+      },
+    },
+  });
 })();
 </script>
 </body>

@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ race.name }} — Race Prep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+  :root {
+    --accent2: #7c3aed;
+    --pr-gold: #fbbf24;
+  }
+  code, .mono { font-family: 'Atkinson Hyperlegible Mono', 'Fira Mono', monospace; }
+
+  main { padding: 20px 24px; max-width: 1100px; }
+
+  .back-link {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--muted);
+    text-decoration: none;
+    margin-bottom: 16px;
+    letter-spacing: 0.3px;
+  }
+  .back-link:hover { color: var(--accent); }
+
+  /* ── Race header ── */
+  .race-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+  }
+
+  .race-header-info { flex: 1; min-width: 200px; }
+
+  .race-title {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .race-subtitle {
+    font-size: 13px;
+    color: var(--muted2);
+    margin-bottom: 8px;
+  }
+
+  .dist-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    text-transform: uppercase;
+  }
+  .badge-5K    { background: rgba(0,212,255,0.12);  color: var(--accent); }
+  .badge-10K   { background: rgba(16,185,129,0.12); color: var(--accent3); }
+  .badge-hm    { background: rgba(124,58,237,0.12); color: #a78bfa; }
+  .badge-m     { background: rgba(245,158,11,0.12); color: var(--accent4); }
+  .badge-ultra { background: rgba(239,68,68,0.12);  color: var(--accent5); }
+
+  .countdown-block {
+    text-align: center;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 24px;
+    min-width: 140px;
+  }
+
+  .countdown-value {
+    font-size: 36px;
+    font-weight: 700;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    color: var(--accent);
+    letter-spacing: -1px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .countdown-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--muted);
+  }
+
+  /* ── Stats bar ── */
+  .statsbar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .stat-card .label {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 4px;
+  }
+  .stat-card .value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .stat-card .sub {
+    color: var(--muted2);
+    font-size: 10px;
+    margin-top: 2px;
+  }
+  .stat-card .value.green  { color: var(--accent3); }
+  .stat-card .value.amber  { color: var(--accent4); }
+  .stat-card .value.purple { color: #a78bfa; }
+
+  /* ── Section title ── */
+  .section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    padding-left: 2px;
+  }
+
+  /* ── 16-week build grid ── */
+  .build-section { margin-bottom: 30px; }
+
+  .build-grid {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .build-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 60px 60px 36px;
+    align-items: center;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0;
+    min-height: 34px;
+  }
+  .build-row:last-child { border-bottom: none; }
+
+  .build-row.is-header {
+    background: var(--bg3);
+    min-height: 28px;
+  }
+  .build-row.is-current-week {
+    background: rgba(0,212,255,0.04);
+  }
+  .build-row.is-future {
+    opacity: 0.55;
+  }
+
+  .build-cell {
+    padding: 5px 10px;
+    font-size: 11px;
+    color: var(--text);
+  }
+  .build-cell.header-cell {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+  }
+
+  .week-label {
+    font-size: 10px;
+    color: var(--muted2);
+    white-space: nowrap;
+  }
+  .week-label .wnum {
+    font-weight: 700;
+    color: var(--muted);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    display: block;
+    margin-bottom: 1px;
+  }
+  .week-label .wdate {
+    font-size: 9px;
+    color: var(--muted);
+  }
+
+  .current-week-tag {
+    display: inline-block;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    padding: 1px 4px;
+    border-radius: 2px;
+    background: rgba(0,212,255,0.15);
+    color: var(--accent);
+    text-transform: uppercase;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+
+  /* Dual bar */
+  .bar-cell { padding: 5px 8px; }
+
+  .bar-pair { display: flex; flex-direction: column; gap: 2px; }
+
+  .bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 8px;
+  }
+
+  .bar-bg {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg3);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    min-width: 2px;
+  }
+
+  .bar-fill.actual  { background: var(--accent3); }
+  .bar-fill.target  { background: rgba(100,116,139,0.5); }
+  .bar-fill.met     { background: var(--accent); }
+
+  .bar-label {
+    font-size: 9px;
+    color: var(--muted);
+    width: 28px;
+    text-align: right;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .bar-label.actual-label { color: var(--accent3); }
+  .bar-label.met { color: var(--accent); }
+
+  .miles-cell {
+    font-size: 11px;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    text-align: right;
+    padding: 5px 10px;
+    color: var(--muted2);
+    white-space: nowrap;
+  }
+  .miles-cell.has-data { color: var(--text); }
+  .miles-cell.met-target { color: var(--accent); font-weight: 700; }
+
+  .target-cell {
+    font-size: 11px;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    text-align: right;
+    padding: 5px 10px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .runs-cell {
+    font-size: 10px;
+    text-align: right;
+    padding: 5px 8px;
+    color: var(--muted);
+  }
+
+  .check-icon { color: var(--accent3); }
+
+  footer {
+    margin-top: 40px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 10px;
+  }
+</style>
+<script src="../theme.js?v={{ build_ts }}"></script>
+</head>
+<body>
+
+<header>
+  <h1>🎯 Race Prep</h1>
+  <span class="subtitle">{{ race.name }} · {{ race.date }}</span>
+</header>
+
+<div class="nav">
+  <a href="../index.html">Races</a>
+  <a href="../activities.html">Activities</a>
+  <a href="../map.html">Map</a>
+  <a href="../analysis.html">Analysis</a>
+  <a href="../mile-splits.html">Mile Splits</a>
+  <a href="../trophies.html">Trophy Room</a>
+  <a href="../training.html">Training Plans</a>
+  <a href="../ai-analysis.html">AI Analysis</a>
+  <a href="../best-efforts.html">Best Efforts</a>
+  <a href="../achievements.html">Achievements</a>
+  <a href="../predictor.html">Predictor</a>
+  <a href="../sleep.html">Sleep</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+  <a class="back-link" href="../index.html">← Race Log</a>
+
+  <!-- ── Race header ── -->
+  <div class="race-header">
+    <div class="race-header-info">
+      <div class="race-title">{{ race.name }}</div>
+      <div class="race-subtitle">
+        {{ race.location }}
+        &nbsp;·&nbsp;
+        {% if race.distance_label in ['5K','~10K'] %}
+          <span class="dist-badge badge-5K">{{ race.distance_label }}</span>
+        {% elif race.distance_label == '10K' %}
+          <span class="dist-badge badge-10K">{{ race.distance_label }}</span>
+        {% elif 'Half' in race.distance_label or race.distance_label == '~HM' %}
+          <span class="dist-badge badge-hm">HM</span>
+        {% elif 'Marathon' in race.distance_label %}
+          <span class="dist-badge badge-m">M</span>
+        {% elif race.distance_label in ['50K','Ultra'] %}
+          <span class="dist-badge badge-ultra">{{ race.distance_label }}</span>
+        {% endif %}
+        &nbsp;·&nbsp;
+        <span class="mono" style="font-size:11px">{{ "%.1f"|format(race.dist_miles) }} mi</span>
+      </div>
+    </div>
+
+    <div class="countdown-block">
+      <div class="countdown-value"
+           data-race-date="{{ race.date }}">{{ race.weeks_until }}w {{ race.days_remainder }}d</div>
+      <div class="countdown-label">until race day</div>
+    </div>
+  </div>
+
+  <!-- ── Stats bar ── -->
+  <div class="statsbar">
+    <div class="stat-card">
+      <div class="label">Race Date</div>
+      <div class="value mono" style="font-size:15px">{{ race.date }}</div>
+      <div class="sub">{{ race.days_until }} days away</div>
+    </div>
+
+    {% if race.target_time %}
+    <div class="stat-card">
+      <div class="label">Target Time</div>
+      <div class="value mono amber">{{ race.target_time }}</div>
+      <div class="sub">{{ race.target_pace_mile }}/mi · {{ race.target_pace_km }}/km</div>
+    </div>
+    {% endif %}
+
+    {% if race.pr %}
+    <div class="stat-card">
+      <div class="label">Current PR</div>
+      <div class="value mono green">{{ race.pr.duration_fmt }}</div>
+      <div class="sub">{{ race.pr_pace_mile }}/mi · {{ race.pr.date }}</div>
+    </div>
+    {% endif %}
+
+    {% if race.target_time and race.pr and race.pr.duration %}
+    {% set delta_s = race.pr.duration - race.target_time_s %}
+    {% set delta_abs = delta_s | abs %}
+    {% set delta_min = (delta_abs // 60) | int %}
+    {% set delta_sec = (delta_abs % 60) | int %}
+    <div class="stat-card">
+      <div class="label">PR → Target</div>
+      {% if delta_s > 0 %}
+        <div class="value mono" style="color:var(--accent5)">-{{ delta_min }}:{{ "%02d" | format(delta_sec) }}</div>
+        <div class="sub">need to drop {{ delta_min }}m {{ delta_sec }}s</div>
+      {% elif delta_s < 0 %}
+        <div class="value mono green">+{{ delta_min }}:{{ "%02d" | format(delta_sec) }}</div>
+        <div class="sub">{{ delta_min }}m {{ delta_sec }}s buffer</div>
+      {% else %}
+        <div class="value mono">Even</div>
+        <div class="sub">exactly at target</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% set actual_weeks = weeks | selectattr('is_future', 'equalto', false) | list %}
+    {% set total_actual = actual_weeks | sum(attribute='miles') %}
+    {% if total_actual > 0 %}
+    <div class="stat-card">
+      <div class="label">Build Miles</div>
+      <div class="value mono">{{ "%.0f"|format(total_actual) }}</div>
+      <div class="sub">{{ actual_weeks|length }} completed weeks</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg Week</div>
+      <div class="value mono">{{ "%.0f"|format(total_actual / actual_weeks|length) }}</div>
+      <div class="sub">miles/week (completed)</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── 16-week build grid ── -->
+  <div class="build-section">
+    <div class="section-title">16-Week Build — Target vs. Actual</div>
+
+    <div class="build-grid">
+      <div class="build-row is-header">
+        <div class="build-cell header-cell">Week</div>
+        <div class="build-cell header-cell">Mileage</div>
+        <div class="build-cell header-cell" style="text-align:right">Actual</div>
+        <div class="build-cell header-cell" style="text-align:right">Target</div>
+        <div class="build-cell header-cell" style="text-align:right">Runs</div>
+      </div>
+
+      {% for w in weeks | reverse %}
+        <div class="build-row
+          {% if w.is_future %}is-future{% endif %}
+          {% if w.is_current_week %}is-current-week{% endif %}">
+
+          <div class="build-cell">
+            <div class="week-label">
+              <span class="wnum">
+                {% if w.weeks_to_race == 0 %}Race Wk
+                {% else %}W{{ w.weeks_to_race }} out{% endif %}
+                {% if w.is_current_week %}<span class="current-week-tag">now</span>{% endif %}
+              </span>
+              <span class="wdate">{{ w.date_start[5:] }}</span>
+            </div>
+          </div>
+
+          <div class="bar-cell">
+            <div class="bar-pair">
+              <div class="bar-wrap">
+                <div class="bar-bg">
+                  {% if not w.is_future and w.miles > 0 %}
+                    {% set act_pct = (w.miles / bar_scale * 100) | int %}
+                    {% set met = w.miles >= w.target_miles * 0.9 %}
+                    <div class="bar-fill {% if met %}met{% else %}actual{% endif %}"
+                         style="width:{{ act_pct }}%"></div>
+                  {% endif %}
+                </div>
+                <span class="bar-label">act</span>
+              </div>
+              <div class="bar-wrap">
+                <div class="bar-bg">
+                  {% if w.target_miles > 0 %}
+                    {% set tgt_pct = (w.target_miles / bar_scale * 100) | int %}
+                    <div class="bar-fill target" style="width:{{ tgt_pct }}%"></div>
+                  {% endif %}
+                </div>
+                <span class="bar-label">tgt</span>
+              </div>
+            </div>
+          </div>
+
+          {% if w.is_future %}
+            <div class="miles-cell">—</div>
+          {% else %}
+            {% set met = w.target_miles > 0 and w.miles >= w.target_miles * 0.9 %}
+            <div class="miles-cell {% if w.miles > 0 %}has-data{% endif %} {% if met %}met-target{% endif %}">
+              {{ "%.1f"|format(w.miles) }}{% if met %} ✓{% endif %}
+            </div>
+          {% endif %}
+
+          <div class="target-cell">
+            {% if w.target_miles > 0 %}{{ w.target_miles }}{% else %}—{% endif %}
+          </div>
+
+          <div class="runs-cell">
+            {% if w.is_future %}—{% else %}{{ w.runs }}{% endif %}
+          </div>
+
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Garmin data · <a href="../index.html">← Race Log</a>
+</footer>
+
+<script>
+  // Live countdown
+  document.querySelectorAll('[data-race-date]').forEach(el => {
+    const race = new Date(el.dataset.raceDate + 'T00:00:00');
+    const diffDays = Math.ceil((race - new Date()) / 86400000);
+    if (diffDays <= 0) {
+      el.textContent = 'Race day!';
+    } else {
+      el.textContent = Math.floor(diffDays / 7) + 'w ' + (diffDays % 7) + 'd';
+    }
+  });
+</script>
+</body>
+</html>
