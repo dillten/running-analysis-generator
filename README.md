@@ -58,6 +58,8 @@ cd dist && python -m http.server 5500
 | `map.html` | Geographic map of all activities |
 | `analysis.html` | Race performance analysis by distance category |
 | `mile-splits.html` | Mile-by-mile split breakdowns |
+| `sleep.html` | Sleep score history, stage breakdown, HRV trend, and patterns by day-of-week and week-of-year |
+| `body.html` | Body composition history — weight, BMI, body fat %, muscle mass, and weight-vs-pace correlation |
 
 ## Caching
 
@@ -103,7 +105,8 @@ Additional tuneable constants remain in `generate.py`:
 - Distance displayed in **miles**
 
 ## Credits
-[Diego Scarabelli](https://github.com/diegoscarabelli) — Garmin data extraction and database schema that made this possible. Thanks for sharing your work!
+[Diego Scarabelli](https://github.com/diegoscarabelli) — Garmin data extraction and database schema that made this possible. Thanks for sharing your work! 
+_Tested using version 2.9.0 of garmin-health-data._
 
 ## License
 > [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) - free to use and modify for personal, non-commercial purposes with attribution and share-alike.

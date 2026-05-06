@@ -3598,6 +3598,112 @@ def fetch_sleep_data(conn: sqlite3.Connection) -> dict:
 
 
 # ─────────────────────────────────────────────
+# Body composition
+# ─────────────────────────────────────────────
+
+def fetch_body_composition(conn: sqlite3.Connection) -> dict:
+    from collections import defaultdict
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            date(timestamp) as weigh_date,
+            weight,
+            bmi,
+            body_fat,
+            body_water,
+            bone_mass,
+            muscle_mass,
+            source_type
+        FROM body_composition
+        WHERE weight IS NOT NULL
+        ORDER BY timestamp
+    """)
+    rows = cursor.fetchall()
+
+    # Deduplicate: keep last entry per calendar date
+    by_date: dict = {}
+    for weigh_date, weight, bmi, body_fat, body_water, bone_mass, muscle_mass, source_type in rows:
+        if not weigh_date:
+            continue
+        by_date[weigh_date] = {
+            "date":       weigh_date,
+            "weight_lbs": round(weight / 453.592, 1)      if weight      else None,
+            "bmi":        round(float(bmi), 1)             if bmi         else None,
+            "body_fat":   round(float(body_fat), 1)        if body_fat    is not None else None,
+            "body_water": round(float(body_water), 1)      if body_water  is not None else None,
+            "bone_lbs":   round(bone_mass / 453.592, 2)   if bone_mass   else None,
+            "muscle_lbs": round(muscle_mass / 453.592, 1) if muscle_mass else None,
+            "source":     source_type,
+        }
+
+    entries = sorted(by_date.values(), key=lambda x: x["date"])
+
+    # Monthly avg running pace for correlation chart
+    in_clause = ",".join("?" * len(RUNNING_TYPES))
+    excl = ",".join(str(x) for x in EXCLUDED_ACTIVITY_IDS) if EXCLUDED_ACTIVITY_IDS else "0"
+    cursor.execute(
+        f"""
+        SELECT
+            strftime('%Y-%m', start_ts) as month,
+            AVG(distance / duration)    as avg_speed_mps,
+            COUNT(*)                    as runs
+        FROM activity
+        WHERE activity_type_key IN ({in_clause})
+          AND start_ts IS NOT NULL
+          AND activity_id NOT IN ({excl})
+          AND distance > 0 AND duration > 0
+        GROUP BY month
+        ORDER BY month
+        """,
+        RUNNING_TYPES,
+    )
+    pace_by_month: dict = {}
+    for month, avg_speed, runs in cursor.fetchall():
+        if avg_speed:
+            pace_by_month[month] = round(1609.344 / avg_speed)
+
+    # Monthly avg weight
+    weight_by_month: dict = defaultdict(list)
+    for e in entries:
+        if e["weight_lbs"]:
+            weight_by_month[e["date"][:7]].append(e["weight_lbs"])
+
+    all_months = sorted(set(list(weight_by_month.keys()) + list(pace_by_month.keys())))
+    monthly = []
+    for m in all_months:
+        ws = weight_by_month.get(m, [])
+        monthly.append({
+            "month":       m,
+            "avg_weight":  round(sum(ws) / len(ws), 1) if ws else None,
+            "pace_sec_mi": pace_by_month.get(m),
+        })
+
+    latest = entries[-1] if entries else {}
+    weights_all = [e["weight_lbs"] for e in entries if e["weight_lbs"]]
+
+    def _last_nonnull(field: str):
+        for e in reversed(entries):
+            if e.get(field) is not None:
+                return e[field]
+        return None
+
+    summary = {
+        "count":            len(entries),
+        "current_weight":   latest.get("weight_lbs"),
+        "current_body_fat": _last_nonnull("body_fat"),
+        "current_muscle":   _last_nonnull("muscle_lbs"),
+        "current_bmi":      _last_nonnull("bmi"),
+        "min_weight":       round(min(weights_all), 1) if weights_all else None,
+        "max_weight":       round(max(weights_all), 1) if weights_all else None,
+        "date_min":         entries[0]["date"]  if entries else None,
+        "date_max":         entries[-1]["date"] if entries else None,
+    }
+
+    return {"entries": entries, "monthly": monthly, "summary": summary}
+
+
+# ─────────────────────────────────────────────
 
 def build_site():
     DIST_DIR.mkdir(exist_ok=True)
@@ -3681,6 +3787,10 @@ def build_site():
     print(f"\nFetching sleep & recovery data...")
     sleep_data = fetch_sleep_data(conn)
     print(f"  {sleep_data['summary']['nights']} nights loaded")
+
+    print(f"\nFetching body composition data...")
+    body_data = fetch_body_composition(conn)
+    print(f"  {body_data['summary']['count']} weigh-ins loaded")
 
     conn.close()
 
@@ -3850,6 +3960,16 @@ def build_site():
     html = tmpl.render(**shared)
     (DIST_DIR / "sleep.html").write_text(html, encoding="utf-8")
     print(f"Generated sleep.html")
+
+    # ── body composition
+    (DIST_DIR / "body-data.js").write_text(
+        "const BODY_DATA = " + json.dumps(body_data) + ";",
+        encoding="utf-8",
+    )
+    tmpl = env.get_template("body.html")
+    html = tmpl.render(**shared)
+    (DIST_DIR / "body.html").write_text(html, encoding="utf-8")
+    print(f"Generated body.html")
 
 
 if __name__ == "__main__":

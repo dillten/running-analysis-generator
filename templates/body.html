@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Body Composition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="body-data.js?v={{ build_ts }}"></script>
+<style>
+  main { padding: 20px 24px; max-width: 1300px; }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 4px; }
+  .stat-value { font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .stat-sub   { font-size: 10px; color: var(--muted2); margin-top: 3px; }
+
+  .range-bar { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .range-btn {
+    font-family: inherit; font-size: 11px; font-weight: 700;
+    padding: 5px 14px; border-radius: 5px;
+    border: 1px solid var(--border); background: var(--bg2); color: var(--muted2);
+    cursor: pointer; transition: all 0.12s;
+  }
+  .range-btn:hover { color: var(--text); border-color: var(--muted); }
+  .range-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+
+  .charts-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 860px) { .charts-2col { grid-template-columns: 1fr; } }
+
+  .chart-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 16px;
+  }
+  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 6px; }
+  .chart-title  { font-size: 13px; font-weight: 700; color: var(--text); }
+  .chart-hint   { font-size: 10px; color: var(--muted); }
+  .chart-wrap      { position: relative; height: 240px; }
+  .chart-wrap-tall { position: relative; height: 300px; }
+</style>
+<script src="theme.js?v={{ build_ts }}"></script>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div>
+      <div class="site-name">Garmin Running Analysis</div>
+      <div class="subtitle">Body Composition</div>
+    </div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">◐</button>
+  </div>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <a href="predictor.html">Predictor</a>
+  <a href="sleep.html">Sleep</a>
+  <a href="body.html" class="active">Body</a>
+</div>
+
+<main>
+
+<div class="stats-row" id="stats-row"></div>
+
+<div class="range-bar">
+  <button class="range-btn" data-days="90">90 days</button>
+  <button class="range-btn" data-days="180">6 months</button>
+  <button class="range-btn" data-days="365">1 year</button>
+  <button class="range-btn" data-days="730">2 years</button>
+  <button class="range-btn active" data-days="0">All time</button>
+</div>
+
+<!-- Weight over time -->
+<div class="chart-card">
+  <div class="chart-header">
+    <span class="chart-title">Weight</span>
+    <span class="chart-hint">lbs · each weigh-in</span>
+  </div>
+  <div class="chart-wrap-tall"><canvas id="weightChart"></canvas></div>
+</div>
+
+<!-- Body fat % + muscle mass -->
+<div class="charts-2col">
+  <div class="chart-card" style="margin-bottom:0">
+    <div class="chart-header">
+      <span class="chart-title">Body Fat %</span>
+      <span class="chart-hint">each weigh-in</span>
+    </div>
+    <div class="chart-wrap"><canvas id="fatChart"></canvas></div>
+  </div>
+  <div class="chart-card" style="margin-bottom:0">
+    <div class="chart-header">
+      <span class="chart-title">Muscle Mass</span>
+      <span class="chart-hint">lbs · each weigh-in</span>
+    </div>
+    <div class="chart-wrap"><canvas id="muscleChart"></canvas></div>
+  </div>
+</div>
+<div style="margin-bottom:16px"></div>
+
+<!-- Weight vs running pace (monthly) -->
+<div class="chart-card">
+  <div class="chart-header">
+    <span class="chart-title">Monthly Weight vs Running Pace</span>
+    <span class="chart-hint">bars = avg weight (lbs) · line = avg pace (min/mi)</span>
+  </div>
+  <div class="chart-wrap-tall"><canvas id="corrChart"></canvas></div>
+</div>
+
+</main>
+
+<footer>
+  Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a> &middot; {{ races|length }} races
+</footer>
+
+<script>
+const { entries, monthly, summary } = BODY_DATA;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function fmtPaceSec(sec) {
+  if (!sec) return '—';
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}/mi`;
+}
+
+// ── Summary cards ────────────────────────────────────────────────────────────
+function renderStats(slice) {
+  const weights  = slice.map(e => e.weight_lbs).filter(Boolean);
+  const fats     = slice.map(e => e.body_fat).filter(v => v !== null);
+  const muscles  = slice.map(e => e.muscle_lbs).filter(Boolean);
+  const bmis     = slice.map(e => e.bmi).filter(Boolean);
+  const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+  const latest = slice.length ? slice[slice.length - 1] : {};
+  const earliest = slice.length ? slice[0] : {};
+  const weightChange = (latest.weight_lbs && earliest.weight_lbs)
+    ? +(latest.weight_lbs - earliest.weight_lbs).toFixed(1) : null;
+
+  const cards = [
+    {
+      label: 'Current Weight',
+      val:   latest.weight_lbs ? latest.weight_lbs + ' lbs' : '—',
+      sub:   weightChange !== null ? (weightChange >= 0 ? '+' : '') + weightChange + ' lbs in range' : latest.date ?? '',
+    },
+    {
+      label: 'Body Fat',
+      val:   latest.body_fat !== undefined && latest.body_fat !== null ? latest.body_fat + '%' : '—',
+      sub:   fats.length ? `avg ${avg(fats).toFixed(1)}% · ${fats.length} readings` : 'no data',
+    },
+    {
+      label: 'Muscle Mass',
+      val:   latest.muscle_lbs ? latest.muscle_lbs + ' lbs' : '—',
+      sub:   muscles.length ? `avg ${avg(muscles).toFixed(1)} lbs` : 'no data',
+    },
+    {
+      label: 'BMI',
+      val:   latest.bmi ?? '—',
+      sub:   bmis.length ? `avg ${avg(bmis).toFixed(1)}` : 'no data',
+    },
+    {
+      label: 'Low / High',
+      val:   weights.length ? `${Math.min(...weights).toFixed(1)}` : '—',
+      sub:   weights.length ? `— ${Math.max(...weights).toFixed(1)} lbs` : '',
+    },
+    {
+      label: 'Weigh-ins',
+      val:   slice.length,
+      sub:   slice.length ? `${slice[0].date} – ${slice[slice.length-1].date}` : '',
+    },
+  ];
+
+  document.getElementById('stats-row').innerHTML = cards.map(c => `
+    <div class="stat-card">
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-value">${c.val}</div>
+      <div class="stat-sub">${c.sub}</div>
+    </div>`).join('');
+}
+
+// ── Filters ──────────────────────────────────────────────────────────────────
+let activeDays = 0;
+
+function cutoff(days) {
+  if (!days) return null;
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function filteredEntries(days) {
+  const c = cutoff(days);
+  return c ? entries.filter(e => e.date >= c) : entries;
+}
+
+function filteredMonthly(days) {
+  const c = cutoff(days);
+  if (!c) return monthly;
+  const month = c.slice(0, 7);
+  return monthly.filter(m => m.month >= month);
+}
+
+// ── Chart defaults ────────────────────────────────────────────────────────────
+const DEFAULTS = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+  scales: {
+    x: { ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
+         grid: { color: 'rgba(255,255,255,0.04)' } },
+    y: { ticks: { color: '#64748b', font: { size: 10 } },
+         grid: { color: 'rgba(255,255,255,0.04)' } },
+  },
+};
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+let weightChart, fatChart, muscleChart, corrChart;
+
+function buildWeightChart(slice) {
+  const labels = slice.map(e => e.date);
+  const data   = slice.map(e => e.weight_lbs);
+  const ctx = document.getElementById('weightChart').getContext('2d');
+  if (weightChart) weightChart.destroy();
+  weightChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: '#00d4ff',
+        backgroundColor: 'rgba(0,212,255,0.06)',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        tension: 0.2,
+        fill: true,
+      }],
+    },
+    options: {
+      ...DEFAULTS,
+      plugins: {
+        ...DEFAULTS.plugins,
+        tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toFixed(1)} lbs` } },
+      },
+      scales: {
+        ...DEFAULTS.scales,
+        y: { ...DEFAULTS.scales.y, ticks: { ...DEFAULTS.scales.y.ticks, callback: v => `${v} lbs` } },
+      },
+    },
+  });
+}
+
+function buildFatChart(slice) {
+  const withFat = slice.filter(e => e.body_fat !== null);
+  const labels  = withFat.map(e => e.date);
+  const ctx = document.getElementById('fatChart').getContext('2d');
+  if (fatChart) fatChart.destroy();
+  fatChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Body Fat %',
+        data: withFat.map(e => e.body_fat),
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245,158,11,0.07)',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        tension: 0.2,
+        fill: true,
+      }],
+    },
+    options: {
+      ...DEFAULTS,
+      plugins: {
+        ...DEFAULTS.plugins,
+        tooltip: { callbacks: { label: ctx => `Body fat: ${ctx.parsed.y.toFixed(1)}%` } },
+      },
+      scales: {
+        ...DEFAULTS.scales,
+        y: { ...DEFAULTS.scales.y, ticks: { ...DEFAULTS.scales.y.ticks, callback: v => `${v}%` } },
+      },
+    },
+  });
+}
+
+function buildMuscleChart(slice) {
+  const withMuscle = slice.filter(e => e.muscle_lbs !== null);
+  const labels     = withMuscle.map(e => e.date);
+  const ctx = document.getElementById('muscleChart').getContext('2d');
+  if (muscleChart) muscleChart.destroy();
+  muscleChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Muscle Mass',
+        data: withMuscle.map(e => e.muscle_lbs),
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16,185,129,0.07)',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        tension: 0.2,
+        fill: true,
+      }],
+    },
+    options: {
+      ...DEFAULTS,
+      plugins: {
+        ...DEFAULTS.plugins,
+        tooltip: { callbacks: { label: ctx => `Muscle: ${ctx.parsed.y.toFixed(1)} lbs` } },
+      },
+      scales: {
+        ...DEFAULTS.scales,
+        y: { ...DEFAULTS.scales.y, ticks: { ...DEFAULTS.scales.y.ticks, callback: v => `${v} lbs` } },
+      },
+    },
+  });
+}
+
+function buildCorrChart(mSlice) {
+  // Only months with both weight and pace
+  const labels  = mSlice.map(m => m.month);
+  const weights = mSlice.map(m => m.avg_weight);
+  const paces   = mSlice.map(m => m.pace_sec_mi);
+
+  const ctx = document.getElementById('corrChart').getContext('2d');
+  if (corrChart) corrChart.destroy();
+  corrChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Avg Weight',
+          data: weights,
+          backgroundColor: 'rgba(0,212,255,0.25)',
+          borderColor: 'rgba(0,212,255,0.5)',
+          borderWidth: 1,
+          yAxisID: 'yWeight',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: 'Avg Pace',
+          data: paces,
+          borderColor: '#f59e0b',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.3,
+          yAxisID: 'yPace',
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'bottom',
+          labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10, padding: 10 } },
+        tooltip: {
+          mode: 'index', intersect: false,
+          callbacks: {
+            label: ctx => ctx.dataset.label === 'Avg Weight'
+              ? `Weight: ${ctx.parsed.y?.toFixed(1) ?? '—'} lbs`
+              : `Pace: ${fmtPaceSec(ctx.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
+             grid: { color: 'rgba(255,255,255,0.04)' } },
+        yWeight: {
+          type: 'linear', position: 'left',
+          ticks: { color: '#00d4ff', font: { size: 10 }, callback: v => `${v} lbs` },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+        },
+        yPace: {
+          type: 'linear', position: 'right',
+          ticks: {
+            color: '#f59e0b', font: { size: 10 },
+            callback: v => fmtPaceSec(Math.round(v)),
+          },
+          grid: { drawOnChartArea: false },
+          reverse: true,
+        },
+      },
+    },
+  });
+}
+
+// ── Wire up ───────────────────────────────────────────────────────────────────
+function refresh(days) {
+  activeDays = days;
+  const slice  = filteredEntries(days);
+  const mSlice = filteredMonthly(days);
+  renderStats(slice);
+  buildWeightChart(slice);
+  buildFatChart(slice);
+  buildMuscleChart(slice);
+  buildCorrChart(mSlice);
+}
+
+document.querySelectorAll('.range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    refresh(parseInt(btn.dataset.days));
+  });
+});
+
+refresh(0);
+</script>
+</body>
+</html>

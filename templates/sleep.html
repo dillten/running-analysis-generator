@@ -140,6 +140,7 @@
   <a href="achievements.html">Achievements</a>
   <a href="predictor.html">Predictor</a>
   <a href="sleep.html" class="active">Sleep</a>
+  <a href="body.html">Body</a>
 </div>
 
 <main>
@@ -183,6 +184,24 @@
     <span class="chart-hint">bars = miles run · line = avg sleep score</span>
   </div>
   <div class="chart-wrap-tall"><canvas id="corrChart"></canvas></div>
+</div>
+
+<!-- Pattern analysis: DOW + WOY -->
+<div class="charts-2col" style="margin-bottom:16px">
+  <div class="chart-card" style="margin-bottom:0">
+    <div class="chart-header">
+      <span class="chart-title">By Day of Week</span>
+      <span class="chart-hint">avg score &amp; hours · Mon–Sun</span>
+    </div>
+    <div class="chart-wrap"><canvas id="dowChart"></canvas></div>
+  </div>
+  <div class="chart-card" style="margin-bottom:0">
+    <div class="chart-header">
+      <span class="chart-title">By Week of Year</span>
+      <span class="chart-hint">avg sleep score · ISO weeks 1–52 aggregated across range</span>
+    </div>
+    <div id="woy-container" style="padding-top:10px;overflow:visible"></div>
+  </div>
 </div>
 
 <!-- HRV (sparse — Dec 2025+) -->
@@ -317,7 +336,7 @@ function filteredWeekly(days) {
 }
 
 // ── Charts ───────────────────────────────────────────────────────────────────
-let scoreChart, stagesChart, corrChart, hrvChart;
+let scoreChart, stagesChart, corrChart, hrvChart, dowChart;
 
 const CHART_DEFAULTS = {
   responsive: true, maintainAspectRatio: false,
@@ -579,6 +598,158 @@ function buildHeatmap() {
   }
 }
 
+// ── Pattern: Day of Week ─────────────────────────────────────────────────────
+function buildDowChart(ns) {
+  const DOW_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const scoresBucket = Array.from({length: 7}, () => []);
+  const hoursBucket  = Array.from({length: 7}, () => []);
+  for (const n of ns) {
+    const d = new Date(n.date + 'T00:00:00');
+    const dow = (d.getDay() + 6) % 7; // 0=Mon … 6=Sun
+    scoresBucket[dow].push(n.score);
+    if (n.total_s) hoursBucket[dow].push(n.total_s / 3600);
+  }
+  const avgFn = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+  const scores = scoresBucket.map(b => { const v = avgFn(b); return v !== null ? +v.toFixed(1) : null; });
+  const hours  = hoursBucket.map(b  => { const v = avgFn(b); return v !== null ? +v.toFixed(2) : null; });
+  const colors = scores.map(s => scoreColor(s));
+
+  const ctx = document.getElementById('dowChart').getContext('2d');
+  if (dowChart) dowChart.destroy();
+  dowChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: DOW_LABELS,
+      datasets: [
+        {
+          label: 'Avg Score',
+          data: scores,
+          backgroundColor: colors,
+          borderWidth: 0,
+          borderRadius: 4,
+          yAxisID: 'yScore',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: 'Avg Hours',
+          data: hours,
+          borderColor: 'rgba(255,255,255,0.5)',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 5,
+          pointBackgroundColor: 'rgba(255,255,255,0.7)',
+          tension: 0.3,
+          yAxisID: 'yHours',
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'bottom',
+          labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10, padding: 10 } },
+        tooltip: {
+          mode: 'index', intersect: false,
+          callbacks: {
+            label: ctx => ctx.dataset.label === 'Avg Score'
+              ? `Score: ${ctx.parsed.y?.toFixed(1) ?? '—'}`
+              : `Hours: ${ctx.parsed.y ? fmtHours(ctx.parsed.y) : '—'}`,
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 11 } },
+             grid: { color: 'rgba(255,255,255,0.04)' } },
+        yScore: {
+          type: 'linear', position: 'left', min: 50, max: 100,
+          ticks: { color: '#64748b', font: { size: 10 } },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          title: { display: false },
+        },
+        yHours: {
+          type: 'linear', position: 'right', min: 4, max: 10,
+          ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => `${v}h` },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+}
+
+// ── Pattern: Week of Year ────────────────────────────────────────────────────
+function isoWeekNum(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const y0 = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  return Math.ceil(((tmp - y0) / 86400000 + 1) / 7);
+}
+
+function buildWoyHeatmap(ns) {
+  const buckets = {};
+  for (let w = 1; w <= 53; w++) buckets[w] = { scores: [], n: 0 };
+  for (const night of ns) {
+    const wk = isoWeekNum(night.date);
+    if (wk >= 1 && wk <= 53) { buckets[wk].scores.push(night.score); buckets[wk].n++; }
+  }
+  const avgFn = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+  const MONTHS = [
+    { label: 'Jan', wk: 1  }, { label: 'Feb', wk: 5  }, { label: 'Mar', wk: 10 },
+    { label: 'Apr', wk: 14 }, { label: 'May', wk: 18 }, { label: 'Jun', wk: 23 },
+    { label: 'Jul', wk: 27 }, { label: 'Aug', wk: 31 }, { label: 'Sep', wk: 36 },
+    { label: 'Oct', wk: 40 }, { label: 'Nov', wk: 45 }, { label: 'Dec', wk: 49 },
+  ];
+  const CELL_W = 16; // 14px + 2px gap
+
+  const container = document.getElementById('woy-container');
+  container.innerHTML = '';
+
+  // Cell row
+  const cellRow = document.createElement('div');
+  cellRow.style.cssText = 'display:flex;gap:2px;overflow:visible;';
+  for (let w = 1; w <= 52; w++) {
+    const b = buckets[w];
+    const avg = avgFn(b.scores);
+    const cell = document.createElement('div');
+    cell.className = 'hm-cell ' + (avg !== null ? scoreClass(Math.round(avg)) : 'hm-none');
+    cell.style.cssText = 'width:14px;height:44px;flex-shrink:0;';
+    cell.setAttribute('data-tip', avg !== null
+      ? `Wk ${w} · Score ${avg.toFixed(1)} · ${b.n} nights`
+      : `Wk ${w} · No data`);
+    cellRow.appendChild(cell);
+  }
+  container.appendChild(cellRow);
+
+  // Month labels
+  const labelWrap = document.createElement('div');
+  labelWrap.style.cssText = `position:relative;height:16px;width:${52 * CELL_W - 2}px;margin-top:4px;`;
+  for (const { label, wk } of MONTHS) {
+    const span = document.createElement('span');
+    span.textContent = label;
+    span.style.cssText = `position:absolute;left:${(wk - 1) * CELL_W}px;font-size:9px;color:#64748b;`;
+    labelWrap.appendChild(span);
+  }
+  container.appendChild(labelWrap);
+
+  // Reuse heatmap legend
+  const legendRow = document.createElement('div');
+  legendRow.className = 'heatmap-legend';
+  legendRow.style.marginTop = '20px';
+  legendRow.innerHTML = `
+    <span style="color:var(--muted2)">Score:</span>
+    <span class="hm-cell hm-exc"  style="display:inline-block;width:10px;height:10px"></span><span>≥90</span>
+    <span class="hm-cell hm-good" style="display:inline-block;width:10px;height:10px"></span><span>80–89</span>
+    <span class="hm-cell hm-fair" style="display:inline-block;width:10px;height:10px"></span><span>70–79</span>
+    <span class="hm-cell hm-poor" style="display:inline-block;width:10px;height:10px"></span><span>60–69</span>
+    <span class="hm-cell hm-bad"  style="display:inline-block;width:10px;height:10px"></span><span>&lt;60</span>
+    <span class="hm-cell hm-none" style="display:inline-block;width:10px;height:10px"></span><span>No data</span>
+  `;
+  container.appendChild(legendRow);
+}
+
 // ── Wire up ───────────────────────────────────────────────────────────────────
 function refresh(days) {
   activeDays = days;
@@ -588,6 +759,8 @@ function refresh(days) {
   buildScoreChart(wks);
   buildStagesChart(wks);
   buildCorrChart(wks);
+  buildDowChart(ns);
+  buildWoyHeatmap(ns);
   buildHrvChart(ns);
 }
 
