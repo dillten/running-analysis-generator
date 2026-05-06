@@ -24,6 +24,7 @@ AI_CACHE_PATH             = Path(__file__).parent / "ai-analysis-cache.json"
 AI_RACE_CACHE_PATH        = Path(__file__).parent / "ai-race-analysis-cache.json"
 AI_CALORIE_CACHE_PATH     = Path(__file__).parent / "ai-calorie-cache.json"
 AI_CALORIE_STRATA_CACHE_PATH = Path(__file__).parent / "ai-calorie-strata-cache.json"
+AI_RECENT_CACHE_PATH      = Path(__file__).parent / "ai-recent-cache.json"
 ACTIVITIES_MANIFEST_PATH  = Path(__file__).parent / "dist" / "activities-manifest.json"
 BEST_EFFORTS_CACHE_PATH   = Path(__file__).parent / "best-efforts-cache.json"
 ACTIVITIES_MANIFEST_VERSION = "layout-v8"  # bump when activity.html template changes
@@ -2027,6 +2028,287 @@ Write in an engaging, warm, analytical tone. Be specific — reference actual ra
 
 
 # ─────────────────────────────────────────────
+# Recent page: fitness/freshness + 30-day summary
+# ─────────────────────────────────────────────
+
+def compute_fitness_freshness(activities: list[dict]) -> list[dict]:
+    """Compute ATL/CTL/TSB (Performance Management Chart) from daily training load.
+
+    CTL (Chronic Training Load / Fitness)  = 42-day exponential moving average
+    ATL (Acute Training Load  / Fatigue)   =  7-day exponential moving average
+    TSB (Training Stress Balance / Form)   = CTL - ATL
+    """
+    daily_load: dict[str, float] = defaultdict(float)
+    for a in activities:
+        load = a.get("activity_training_load") or 0
+        if load:
+            daily_load[a["date"]] += load
+
+    today = date.today()
+    start = today - timedelta(days=730)  # 2 years back
+
+    ctl = 0.0
+    atl = 0.0
+    k_ctl = 1.0 / 42
+    k_atl = 1.0 / 7
+
+    result: list[dict] = []
+    d = start
+    while d <= today:
+        ds = d.strftime("%Y-%m-%d")
+        load = daily_load.get(ds, 0.0)
+        ctl = ctl * (1 - k_ctl) + load * k_ctl
+        atl = atl * (1 - k_atl) + load * k_atl
+        result.append({
+            "date": ds,
+            "load": round(load, 1),
+            "ctl":  round(ctl, 1),
+            "atl":  round(atl, 1),
+            "tsb":  round(ctl - atl, 1),
+        })
+        d += timedelta(days=1)
+    return result
+
+
+def fetch_recent_activities_with_notables(
+    all_activities: list[dict],
+    all_notables: dict[int, list[dict]],
+    all_effort_splits: dict[int, list[dict]],
+    days: int = 30,
+) -> list[dict]:
+    """Return activities from the last N days, enriched with notables and best splits."""
+    _TIER_ORDER = {"pr": 0, "milestone": 1, "hot": 2, "good": 3, "ok": 4, "muted": 5}
+    cutoff = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+    result = []
+    for a in all_activities:
+        if a["date"] < cutoff:
+            continue
+        aid = a["activity_id"]
+        ns = sorted(all_notables.get(aid, []), key=lambda n: _TIER_ORDER.get(n["tier"], 9))
+        result.append({
+            **a,
+            "notables": [
+                {"icon": n["icon"], "tier": n["tier"],
+                 "label": n["label"], "window": n["window"], "value": n.get("value", "")}
+                for n in ns[:8]
+            ],
+            "best_splits": all_effort_splits.get(aid, []),
+        })
+    result.sort(key=lambda x: x["start_ts"], reverse=True)
+    return result
+
+
+RECENT_AI_VERSION = "v1"
+
+def generate_recent_ai_narrative(
+    recent_activities: list[dict],
+    fitness_series: list[dict],
+    future_races: list[dict],
+    prs: dict,
+) -> str:
+    """AI coaching narrative about current training state and 30-day outlook (cached)."""
+    cache_key = ",".join(str(a["activity_id"]) for a in recent_activities)
+
+    if AI_RECENT_CACHE_PATH.exists():
+        cached = json.loads(AI_RECENT_CACHE_PATH.read_text(encoding="utf-8"))
+        if cached.get("cache_key") == cache_key and cached.get("version") == RECENT_AI_VERSION:
+            print("  [recent AI] cache hit")
+            return cached["content"]
+
+    print(f"\nGenerating recent-training AI narrative with Ollama ({OLLAMA_MODEL})...")
+
+    today_str = date.today().strftime("%Y-%m-%d")
+    latest = fitness_series[-1] if fitness_series else {}
+    ctl = latest.get("ctl", 0)
+    atl = latest.get("atl", 0)
+    tsb = latest.get("tsb", 0)
+    form_word = "fresh" if tsb > 5 else ("fatigued" if tsb < -10 else "neutral")
+
+    total_miles = sum(a.get("miles", 0) for a in recent_activities)
+    total_load  = sum(a.get("activity_training_load") or 0 for a in recent_activities)
+    total_elev  = sum(
+        int((a.get("elevation_gain") or 0) * 3.28084) for a in recent_activities
+    )
+    race_count_30 = sum(1 for a in recent_activities if a.get("is_race"))
+    avg_hr_vals   = [a["average_hr"] for a in recent_activities if a.get("average_hr")]
+    avg_hr_30     = sum(avg_hr_vals) / len(avg_hr_vals) if avg_hr_vals else None
+    vo2_vals      = [a["vo2_max_value"] for a in recent_activities if a.get("vo2_max_value")]
+    latest_vo2    = vo2_vals[0] if vo2_vals else None  # sorted newest first
+
+    lines = [
+        f"Today: {today_str}",
+        f"Fitness (CTL 42-day avg): {ctl:.1f}",
+        f"Fatigue (ATL 7-day avg):  {atl:.1f}",
+        f"Form / TSB (CTL − ATL):   {tsb:.1f}  [{form_word}]",
+        "",
+        f"Last 30-day summary: {len(recent_activities)} runs, {total_miles:.1f} mi, "
+        f"{total_load:.0f} total training load, {total_elev:,} ft elevation gain",
+    ]
+    if avg_hr_30:
+        lines[-1] += f", avg HR {avg_hr_30:.0f} bpm"
+    if race_count_30:
+        lines[-1] += f", {race_count_30} race(s)"
+    if latest_vo2:
+        lines.append(f"Most recent VO2max reading: {latest_vo2:.1f}")
+
+    lines.append("\nPer-activity detail (newest first):")
+    for a in recent_activities:
+        pace    = a.get("pace_mile", "—")
+        miles   = a.get("miles", 0)
+        load    = a.get("activity_training_load") or 0
+        hr      = a.get("average_hr")
+        elev    = int((a.get("elevation_gain") or 0) * 3.28084)
+        cadence = a.get("avg_running_cadence")
+        aero_te = a.get("aerobic_training_effect")
+        anaero_te = a.get("anaerobic_training_effect")
+        ns_str  = ", ".join(n["label"] for n in a.get("notables", [])[:5])
+
+        parts = [f"  {a['date']}: {miles:.1f}mi @ {pace}/mi"]
+        if hr:
+            parts.append(f"HR {hr:.0f}")
+        if load:
+            parts.append(f"load {load:.0f}")
+        if elev:
+            parts.append(f"elev +{elev}ft")
+        if cadence:
+            parts.append(f"cadence {cadence:.0f}")
+        if aero_te:
+            parts.append(f"aerobic TE {aero_te:.1f}")
+        if anaero_te and anaero_te > 0.5:
+            parts.append(f"anaerobic TE {anaero_te:.1f}")
+        if a.get("is_race"):
+            parts.append("RACE")
+        line = ", ".join(parts)
+        if ns_str:
+            line += f"  [{ns_str}]"
+        lines.append(line)
+
+    # Weekly breakdown
+    from collections import defaultdict as _dd
+    week_miles: dict = _dd(float)
+    week_load:  dict = _dd(float)
+    week_runs:  dict = _dd(int)
+    for a in recent_activities:
+        try:
+            d = datetime.strptime(a["date"], "%Y-%m-%d")
+            wk = d.strftime("%Y-W%V")
+        except (ValueError, KeyError):
+            continue
+        week_miles[wk] += a.get("miles", 0)
+        week_load[wk]  += a.get("activity_training_load") or 0
+        week_runs[wk]  += 1
+    if week_miles:
+        lines.append("\nWeekly breakdown (last 30 days):")
+        for wk in sorted(week_miles.keys()):
+            lines.append(
+                f"  {wk}: {week_miles[wk]:.1f} mi, "
+                f"{week_runs[wk]} runs, load {week_load[wk]:.0f}"
+            )
+
+    lines.append("\nPersonal Records:")
+    for dist, pr in sorted(prs.items()):
+        lines.append(f"  {dist}: {pr.get('duration_fmt', '?')} ({pr.get('pace_mile', '?')}/mi)")
+
+    if future_races:
+        lines.append("\nUpcoming Races:")
+        for r in future_races:
+            tgt = r.get("target_time", "no target")
+            lines.append(
+                f"  {r['name']} on {r['date']} "
+                f"({r.get('weeks_until', 0)}w {r.get('days_remainder', 0)}d away) "
+                f"— {r.get('distance_label', '')} — target {tgt}"
+            )
+
+    data_text = "\n".join(lines)
+
+    prompt = f"""You are an expert running coach reviewing a runner's recent training data (male, age 45 in 2026).
+
+RUNNER DATA:
+{data_text}
+
+Write a coaching narrative in 4–5 plain paragraphs (no headers, no bullet points). Be specific — reference actual dates, distances, paces, HR values, training load numbers, and weekly patterns from the data. Cover:
+1. Current training state: what the CTL/ATL/TSB numbers mean right now, the trend over the past month, and whether the weekly volume and load are appropriate.
+2. Notable patterns in the detail: HR trends, pace-to-HR relationships (aerobic efficiency), cadence, training effect scores, any intensity spikes or drops, and what these reveal about current fitness vs. fatigue.
+3. Specific achievements or concerns from individual sessions — call out the best runs, any signs of overreach, and recovery quality.
+4. What to prioritise in the next 30 days — be concrete about volume, intensity, long run length, and recovery needs.
+5. If there are upcoming races, targeted advice on how the current fitness translates to race readiness and what to adjust.
+
+Write as a knowledgeable coach speaking directly to the athlete. Cite specific numbers."""
+
+    try:
+        content = _call_ollama(prompt)
+    except urllib.error.URLError as e:
+        content = (
+            f"Could not connect to Ollama — make sure it is running (`ollama serve`) "
+            f"and the model `{OLLAMA_MODEL}` is pulled.\n\nError: {e}"
+        )
+
+    AI_RECENT_CACHE_PATH.write_text(
+        json.dumps({"cache_key": cache_key, "version": RECENT_AI_VERSION,
+                    "generated_at": today_str, "model": OLLAMA_MODEL, "content": content},
+                   ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print("  Recent AI narrative complete.")
+    return content
+
+
+def build_recent_page(
+    all_activities: list[dict],
+    all_notables: dict[int, list[dict]],
+    all_effort_splits: dict[int, list[dict]],
+    future_races: list[dict],
+    prs: dict,
+    env,
+    shared: dict,
+) -> None:
+    print("\nBuilding recent page...")
+    fitness_series = compute_fitness_freshness(all_activities)
+    recent_acts    = fetch_recent_activities_with_notables(all_activities, all_notables, all_effort_splits, days=30)
+    ai_narrative   = generate_recent_ai_narrative(recent_acts, fitness_series, future_races, prs)
+
+    # Race markers: all races within the 2-year fitness window, with PMC values on race day
+    races = shared.get("races", [])
+    pr_dates = {r["date"] for r in prs.values()}
+    fitness_by_date = {d["date"]: d for d in fitness_series}
+    two_years_ago = (date.today() - timedelta(days=730)).strftime("%Y-%m-%d")
+
+    race_markers = []
+    for r in races:
+        rdate = r.get("date", "")
+        if rdate < two_years_ago:
+            continue
+        fd = fitness_by_date.get(rdate, {})
+        race_markers.append({
+            "date":           rdate,
+            "name":           r.get("activity_name", ""),
+            "distance_label": r.get("distance_label", ""),
+            "duration_fmt":   r.get("duration_fmt", ""),
+            "pace_mile":      r.get("pace_mile", ""),
+            "average_hr":     r.get("average_hr"),
+            "vo2_max":        r.get("vo2_max_value"),
+            "activity_id":    r.get("activity_id"),
+            "is_pr":          rdate in pr_dates,
+            "ctl_on_day":     fd.get("ctl", 0),
+            "atl_on_day":     fd.get("atl", 0),
+            "tsb_on_day":     fd.get("tsb", 0),
+        })
+    race_markers.sort(key=lambda x: x["date"], reverse=True)
+
+    (DIST_DIR / "recent-data.js").write_text(
+        "const RECENT_FITNESS = "      + json.dumps(fitness_series) + ";\n"
+        "const RECENT_ACTIVITIES = "   + json.dumps(recent_acts, default=str) + ";\n"
+        "const RECENT_RACE_MARKERS = " + json.dumps(race_markers) + ";\n",
+        encoding="utf-8",
+    )
+
+    tmpl = env.get_template("recent.html")
+    html = tmpl.render(**shared, ai_narrative=ai_narrative, recent_count=len(recent_acts))
+    (DIST_DIR / "recent.html").write_text(html, encoding="utf-8")
+    print(f"  Generated recent.html ({len(recent_acts)} activities, {len(fitness_series)} fitness days)")
+
+
+# ─────────────────────────────────────────────
 # Per-race build analysis (Ollama)
 # ─────────────────────────────────────────────
 
@@ -3970,6 +4252,9 @@ def build_site():
     html = tmpl.render(**shared)
     (DIST_DIR / "body.html").write_text(html, encoding="utf-8")
     print(f"Generated body.html")
+
+    # ── recent page
+    build_recent_page(all_activities, all_notables, all_effort_splits, future_races, prs, env, shared)
 
 
 if __name__ == "__main__":

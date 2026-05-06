@@ -1,38 +1,38 @@
 :root {
-  --bg:      #0a0e1a;
-  --bg2:     #111827;
-  --bg3:     #1a2235;
-  --border:  #1e2d45;
-  --accent:  #00d4ff;
-  --accent3: #10b981;
-  --accent4: #f59e0b;
-  --accent5: #ef4444;
-  --text:    #e2e8f0;
-  --muted:   #64748b;
-  --muted2:  #94a3b8;
+  --bg:      #0c0a1a;
+  --bg2:     #16102a;
+  --bg3:     #1e1630;
+  --border:  #2e2248;
+  --accent:  #ff7a5c;
+  --accent3: #7db87d;
+  --accent4: #ffb347;
+  --accent5: #e05c5c;
+  --text:    #f0eaf8;
+  --muted:   #6b5f80;
+  --muted2:  #9b8ec4;
 }
 html[data-theme="light"] {
-  --bg:      #f0f4f8;
+  --bg:      #fff9f5;
   --bg2:     #ffffff;
-  --bg3:     #e8eef5;
-  --border:  #d1dce8;
-  --accent:  #0284c7;
-  --accent3: #059669;
-  --accent4: #d97706;
-  --accent5: #dc2626;
-  --text:    #0f172a;
-  --muted:   #64748b;
-  --muted2:  #475569;
+  --bg3:     #fef0e8;
+  --border:  #f0d9cc;
+  --accent:  #d95f3b;
+  --accent3: #4a9e6a;
+  --accent4: #c98a1a;
+  --accent5: #c0392b;
+  --text:    #1a0f0a;
+  --muted:   #8a6a5a;
+  --muted2:  #6b4e3d;
 }
 html[data-theme="light"] header {
-  background: linear-gradient(135deg, #e8f0fe 0%, #f0e8fe 100%);
+  background: linear-gradient(135deg, #fde8d8 0%, #f5e0f8 50%, #ffe8c0 100%);
 }
 html[data-theme="light"] .nav a:hover,
 html[data-theme="light"] .nav a.active {
-  background: rgba(2,132,199,0.08);
+  background: rgba(217,95,59,0.08);
 }
 html[data-theme="light"] .theme-toggle:hover {
-  background: rgba(2,132,199,0.08);
+  background: rgba(217,95,59,0.08);
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -44,7 +44,7 @@ body {
 }
 .mono { font-family: 'Atkinson Hyperlegible Mono', monospace; }
 header {
-  background: linear-gradient(135deg, #0d1b2e 0%, #1a0a2e 100%);
+  background: linear-gradient(135deg, #0c0a1a 0%, #1a0a2e 40%, #2e1020 70%, #1a100a 100%);
   border-bottom: 1px solid var(--border);
   padding: 18px 24px 14px;
   display: flex; align-items: baseline; gap: 16px;
@@ -60,7 +60,7 @@ header .subtitle { color: var(--muted2); font-size: 12px; }
   padding: 3px 9px; border-radius: 4px; border: 1px solid transparent; transition: all 0.15s;
 }
 .nav a:hover, .nav a.active {
-  color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.06);
+  color: var(--accent); border-color: var(--accent); background: rgba(255,122,92,0.07);
 }
 .theme-toggle {
   margin-left: auto;
