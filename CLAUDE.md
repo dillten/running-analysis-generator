@@ -28,7 +28,7 @@ Only activities with `activity_type_key IN ('running','treadmill_running','track
 
 ## Architecture
 
-`generate.py` is the entire backend (~2500 lines). `build_site()` at the bottom orchestrates everything in order:
+`generate.py` is the entire backend (~4900 lines). `build_site()` at the bottom orchestrates everything in order:
 
 1. **Races pipeline** — `fetch_races()` → `fetch_all_best_splits()` → `fetch_all_pace_series()` → `fetch_training_blocks()` → `fetch_all_mile_splits()` → AI analyses
 2. **All-activities pipeline** — `fetch_activity_heatmap()` → `fetch_streaks()` → `fetch_activity_map_data()` → `fetch_all_activities_list()` → `fetch_all_best_efforts()` → `compute_notables()` → `build_activity_pages()`
@@ -38,7 +38,7 @@ Large JS data is written to separate `.js` files (e.g. `race-data.js`, `activiti
 
 ## Caching
 
-Five cache files sit at the project root (all gitignored):
+Six cache files sit at the project root (all gitignored):
 
 | File | Key | Invalidated by |
 |---|---|---|
@@ -47,6 +47,7 @@ Five cache files sit at the project root (all gitignored):
 | `ai-race-analysis-cache.json` | `activity_id` | Delete entry or whole file |
 | `ai-calorie-cache.json` | `activity_id` | Delete file |
 | `ai-calorie-strata-cache.json` | `CALORIE_STRATA_VERSION` constant | Bump version string or delete file |
+| `ai-recent-cache.json` | `{cache_key, version}` | Bump `RECENT_AI_VERSION` string in `generate_recent_ai_narrative()` or delete file |
 
 Per-activity HTML pages are tracked in `dist/activities-manifest.json` keyed by `activity_id → update_ts`. There is also a `_version` key (`ACTIVITIES_MANIFEST_VERSION` constant) — bump this string whenever `templates/activity.html` changes significantly so all pages rebuild.
 
@@ -72,7 +73,7 @@ Per-activity HTML pages are tracked in `dist/activities-manifest.json` keyed by 
 
 ## Notables System
 
-`compute_notables()` awards per-activity badges by comparing each activity against rolling windows (all-time → 1yr → 6mo → 3mo → 1mo), awarding only the most impressive window. Metrics covered: distance, duration, elevation, training load, calories, avg HR, pace, local start hour, best split at each distance, and lifetime milestones. Notables are passed directly into Jinja2 context for `activity.html` and embedded in `ACTIVITIES_LOG` (capped at 6 per activity, sorted by tier) for the activities list page.
+`compute_notables()` awards per-activity badges by comparing each activity against rolling windows (all-time → 1yr → 6mo → 3mo → 1mo), awarding only the most impressive window. Metrics covered: distance, duration, elevation, training load, calories, avg HR, pace, local start hour, best split at each distance, and lifetime milestones. It also tags non-ranking "special" notables (calendar/celestial dates, oddball distances, location firsts, streaks, etc.) that don't compete for a window — these always sort last per `NOTABLE_TIER_ORDER`. Notables are passed directly into Jinja2 context for `activity.html` (uncapped) and embedded in `ACTIVITIES_LOG` (capped at 6 per activity, sorted by `NOTABLE_TIER_ORDER`) for the activities list page.
 
 ## Units
 

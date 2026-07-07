@@ -50,10 +50,11 @@ cd dist && python -m http.server 5500
 |---|---|
 | `index.html` / Activities | Full activity log with filters, heatmap, streaks, and map |
 | `races.html` | Race history with pace series charts and training block analysis |
-| `best-efforts.html` | Personal records at each standard distance (1K → 50K) |
+| `best-efforts.html` | Personal records at each standard distance (1K → 50K), plus distance/pace scatter, PR progression, and monthly effort density charts |
 | `trophies.html` / Achievements | Milestone badges and notable performances |
 | `ai-analysis.html` | AI-generated career narrative and per-race build summaries |
-| `activity/{id}.html` | Per-activity detail page with splits, charts, and notables earned |
+| `recent.html` | Last 30 days at a glance — fitness/freshness (CTL/ATL/TSB) chart, race comparisons, and AI coaching narrative |
+| `activity/{id}.html` | Per-activity detail page with splits, charts, insights, and notables earned |
 | `training.html` | Week-by-week training load overview |
 | `map.html` | Geographic map of all activities |
 | `analysis.html` | Race performance analysis by distance category |
@@ -63,7 +64,7 @@ cd dist && python -m http.server 5500
 
 ## Caching
 
-Four cache files are created at the project root (all gitignored) to avoid redundant computation:
+Six cache files are created at the project root (all gitignored) to avoid redundant computation:
 
 | File | What it caches | How to invalidate |
 |---|---|---|
@@ -71,6 +72,7 @@ Four cache files are created at the project root (all gitignored) to avoid redun
 | `ai-analysis-cache.json` | Overall career AI narrative | Delete file or bump `cache_version` in `generate_ai_analysis()` |
 | `ai-race-analysis-cache.json` | Per-race build AI summaries | Delete file or delete individual entry |
 | `ai-calorie-cache.json` / `ai-calorie-strata-cache.json` | AI food-equivalent descriptions for calorie counts | Delete files |
+| `ai-recent-cache.json` | AI coaching narrative on the Recent page | Delete file or bump `RECENT_AI_VERSION` in `generate_recent_ai_narrative()` |
 
 Per-activity HTML pages are tracked in `dist/activities-manifest.json`. Bump `ACTIVITIES_MANIFEST_VERSION` in `generate.py` to force a full rebuild of all activity pages when `templates/activity.html` changes significantly.
 
