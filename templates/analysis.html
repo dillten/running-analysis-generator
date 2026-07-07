@@ -334,6 +334,7 @@ function secToMMSS(sec) {
 
 // ── Chart setup ────────────────────────────────────────────────────
 const ctx = document.getElementById('paceChart').getContext('2d');
+const ct  = chartThemeColors();
 
 const paceChart = new Chart(ctx, {
   type: 'line',
@@ -347,11 +348,11 @@ const paceChart = new Chart(ctx, {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: '#0f1c30',
-        borderColor: '#1e2d45',
+        backgroundColor: ct.tooltipBg,
+        borderColor: ct.tooltipBorder,
         borderWidth: 1,
-        titleColor: '#94a3b8',
-        bodyColor: '#e2e8f0',
+        titleColor: ct.tooltipText,
+        bodyColor: ct.tooltipText,
         titleFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
         bodyFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 11 },
         callbacks: {
@@ -364,20 +365,20 @@ const paceChart = new Chart(ctx, {
     scales: {
       x: {
         type: 'linear',
-        title: { display: true, text: 'Distance (miles)', color: '#64748b', font: { size: 10 } },
-        ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
-        grid:  { color: 'rgba(255,255,255,0.04)' },
+        title: { display: true, text: 'Distance (miles)', color: ct.tick, font: { size: 10 } },
+        ticks: { color: ct.tick, font: { size: 10 }, maxTicksLimit: 14 },
+        grid:  { color: ct.grid },
       },
       y: {
         reverse: true,   // faster pace (lower seconds) at top
-        title: { display: true, text: 'Pace / mile', color: '#64748b', font: { size: 10 } },
+        title: { display: true, text: 'Pace / mile', color: ct.tick, font: { size: 10 } },
         ticks: {
-          color: '#64748b',
+          color: ct.tick,
           font: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
           callback: v => secToMMSS(v),
           maxTicksLimit: 8,
         },
-        grid:  { color: 'rgba(255,255,255,0.04)' },
+        grid:  { color: ct.grid },
       },
     },
   },
@@ -490,6 +491,7 @@ document.getElementById('cat-tabs').addEventListener('click', e => {
 })();
 
 // ── VO2max chart ─────────────────────────────────────────────────────────────
+let vo2Chart = null;
 (function() {
   const vo2data   = RACE_DATA.vo2max   || [];
   const raceDates = RACE_DATA.race_dates || [];
@@ -505,7 +507,7 @@ document.getElementById('cat-tabs').addEventListener('click', e => {
   const pointRadii  = labels.map(d => raceDateSet.has(d) ? 4 : 0);
 
   const ctx2 = document.getElementById('vo2Chart').getContext('2d');
-  new Chart(ctx2, {
+  vo2Chart = new Chart(ctx2, {
     type: 'line',
     data: {
       labels,
@@ -543,18 +545,23 @@ document.getElementById('cat-tabs').addEventListener('click', e => {
       },
       scales: {
         x: {
-          ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
-          grid:  { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: ct.tick, font: { size: 10 }, maxTicksLimit: 14 },
+          grid:  { color: ct.grid },
         },
         y: {
           min: 40,
-          ticks: { color: '#64748b', font: { size: 10 } },
-          grid:  { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: ct.tick, font: { size: 10 } },
+          grid:  { color: ct.grid },
         },
       },
     },
   });
 })();
+
+onThemeChange(() => {
+  applyChartTheme(paceChart);
+  applyChartTheme(vo2Chart);
+});
 </script>
 </body>
 </html>

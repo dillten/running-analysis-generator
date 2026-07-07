@@ -217,16 +217,19 @@ function filteredMonthly(days) {
 }
 
 // ── Chart defaults ────────────────────────────────────────────────────────────
-const DEFAULTS = {
-  responsive: true, maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-  scales: {
-    x: { ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
-         grid: { color: 'rgba(255,255,255,0.04)' } },
-    y: { ticks: { color: '#64748b', font: { size: 10 } },
-         grid: { color: 'rgba(255,255,255,0.04)' } },
-  },
-};
+function chartDefaults() {
+  const ct = chartThemeColors();
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+    scales: {
+      x: { ticks: { color: ct.tick, font: { size: 10 }, maxTicksLimit: 14 },
+           grid: { color: ct.grid } },
+      y: { ticks: { color: ct.tick, font: { size: 10 } },
+           grid: { color: ct.grid } },
+    },
+  };
+}
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 let weightChart, fatChart, muscleChart, corrChart;
@@ -236,6 +239,7 @@ function buildWeightChart(slice) {
   const data   = slice.map(e => e.weight_lbs);
   const ctx = document.getElementById('weightChart').getContext('2d');
   if (weightChart) weightChart.destroy();
+  const CD = chartDefaults();
   weightChart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -252,14 +256,14 @@ function buildWeightChart(slice) {
       }],
     },
     options: {
-      ...DEFAULTS,
+      ...CD,
       plugins: {
-        ...DEFAULTS.plugins,
+        ...CD.plugins,
         tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toFixed(1)} lbs` } },
       },
       scales: {
-        ...DEFAULTS.scales,
-        y: { ...DEFAULTS.scales.y, ticks: { ...DEFAULTS.scales.y.ticks, callback: v => `${v} lbs` } },
+        ...CD.scales,
+        y: { ...CD.scales.y, ticks: { ...CD.scales.y.ticks, callback: v => `${v} lbs` } },
       },
     },
   });
@@ -270,6 +274,7 @@ function buildFatChart(slice) {
   const labels  = withFat.map(e => e.date);
   const ctx = document.getElementById('fatChart').getContext('2d');
   if (fatChart) fatChart.destroy();
+  const CD = chartDefaults();
   fatChart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -286,14 +291,14 @@ function buildFatChart(slice) {
       }],
     },
     options: {
-      ...DEFAULTS,
+      ...CD,
       plugins: {
-        ...DEFAULTS.plugins,
+        ...CD.plugins,
         tooltip: { callbacks: { label: ctx => `Body fat: ${ctx.parsed.y.toFixed(1)}%` } },
       },
       scales: {
-        ...DEFAULTS.scales,
-        y: { ...DEFAULTS.scales.y, ticks: { ...DEFAULTS.scales.y.ticks, callback: v => `${v}%` } },
+        ...CD.scales,
+        y: { ...CD.scales.y, ticks: { ...CD.scales.y.ticks, callback: v => `${v}%` } },
       },
     },
   });
@@ -304,6 +309,7 @@ function buildMuscleChart(slice) {
   const labels     = withMuscle.map(e => e.date);
   const ctx = document.getElementById('muscleChart').getContext('2d');
   if (muscleChart) muscleChart.destroy();
+  const CD = chartDefaults();
   muscleChart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -320,14 +326,14 @@ function buildMuscleChart(slice) {
       }],
     },
     options: {
-      ...DEFAULTS,
+      ...CD,
       plugins: {
-        ...DEFAULTS.plugins,
+        ...CD.plugins,
         tooltip: { callbacks: { label: ctx => `Muscle: ${ctx.parsed.y.toFixed(1)} lbs` } },
       },
       scales: {
-        ...DEFAULTS.scales,
-        y: { ...DEFAULTS.scales.y, ticks: { ...DEFAULTS.scales.y.ticks, callback: v => `${v} lbs` } },
+        ...CD.scales,
+        y: { ...CD.scales.y, ticks: { ...CD.scales.y.ticks, callback: v => `${v} lbs` } },
       },
     },
   });
@@ -341,6 +347,7 @@ function buildCorrChart(mSlice) {
 
   const ctx = document.getElementById('corrChart').getContext('2d');
   if (corrChart) corrChart.destroy();
+  const ct = chartThemeColors();
   corrChart = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -373,7 +380,7 @@ function buildCorrChart(mSlice) {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: true, position: 'bottom',
-          labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10, padding: 10 } },
+          labels: { color: ct.legend, font: { size: 10 }, boxWidth: 10, padding: 10 } },
         tooltip: {
           mode: 'index', intersect: false,
           callbacks: {
@@ -384,12 +391,12 @@ function buildCorrChart(mSlice) {
         },
       },
       scales: {
-        x: { ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 14 },
-             grid: { color: 'rgba(255,255,255,0.04)' } },
+        x: { ticks: { color: ct.tick, font: { size: 10 }, maxTicksLimit: 14 },
+             grid: { color: ct.grid } },
         yWeight: {
           type: 'linear', position: 'left',
           ticks: { color: '#00d4ff', font: { size: 10 }, callback: v => `${v} lbs` },
-          grid: { color: 'rgba(255,255,255,0.04)' },
+          grid: { color: ct.grid },
         },
         yPace: {
           type: 'linear', position: 'right',
@@ -426,6 +433,8 @@ document.querySelectorAll('.range-btn').forEach(btn => {
 });
 
 refresh(0);
+
+onThemeChange(() => refresh(activeDays));
 </script>
 </body>
 </html>
