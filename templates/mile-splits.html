@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -144,7 +144,9 @@
   <a href="best-efforts.html">Best Efforts</a>
   <a href="achievements.html">Achievements</a>
   <a href="predictor.html">Predictor</a>
-  <a href="sleep.html">Sleep</a>`n  <a href="body.html">Body</a>
+  <a href="sleep.html">Sleep</a>
+  <a href="body.html">Body</a>
+  <a href="recent.html">Recent</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 
@@ -197,6 +199,7 @@ function secToMMSS(sec) {
 
 // ── Chart setup ────────────────────────────────────────────────────
 const ctx = document.getElementById('milesChart').getContext('2d');
+const ct  = chartThemeColors();
 const milesChart = new Chart(ctx, {
   type: 'line',
   data: { datasets: [] },
@@ -209,9 +212,9 @@ const milesChart = new Chart(ctx, {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: '#0f1c30',
-        borderColor: '#1e2d45', borderWidth: 1,
-        titleColor: '#94a3b8', bodyColor: '#e2e8f0',
+        backgroundColor: ct.tooltipBg,
+        borderColor: ct.tooltipBorder, borderWidth: 1,
+        titleColor: ct.tooltipText, bodyColor: ct.tooltipText,
         titleFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
         bodyFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 11 },
         callbacks: {
@@ -224,24 +227,26 @@ const milesChart = new Chart(ctx, {
     scales: {
       x: {
         type: 'linear',
-        title: { display: true, text: 'Mile', color: '#64748b', font: { size: 10 } },
-        ticks: { color: '#64748b', font: { size: 10 }, stepSize: 1, maxTicksLimit: 30 },
-        grid:  { color: 'rgba(255,255,255,0.04)' },
+        title: { display: true, text: 'Mile', color: ct.tick, font: { size: 10 } },
+        ticks: { color: ct.tick, font: { size: 10 }, stepSize: 1, maxTicksLimit: 30 },
+        grid:  { color: ct.grid },
       },
       y: {
         reverse: true,
-        title: { display: true, text: 'Pace / mile', color: '#64748b', font: { size: 10 } },
+        title: { display: true, text: 'Pace / mile', color: ct.tick, font: { size: 10 } },
         ticks: {
-          color: '#64748b',
+          color: ct.tick,
           font: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
           callback: v => secToMMSS(v),
           maxTicksLimit: 8,
         },
-        grid: { color: 'rgba(255,255,255,0.04)' },
+        grid: { color: ct.grid },
       },
     },
   },
 });
+
+onThemeChange(() => applyChartTheme(milesChart));
 
 function buildLegend(datasets) {
   const wrap = document.getElementById('chart-legend');

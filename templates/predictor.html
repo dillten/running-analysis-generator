@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -250,6 +250,7 @@
   <a href="predictor.html" class="active">Predictor</a>
   <a href="sleep.html">Sleep</a>
   <a href="body.html">Body</a>
+  <a href="recent.html">Recent</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 
@@ -607,6 +608,7 @@ PREDICTOR_LABELS.forEach(lbl => {
 });
 
 const ctx = document.getElementById('predChart').getContext('2d');
+const ct  = chartThemeColors();
 const predChart = new Chart(ctx, {
   type: 'line',
   data: { datasets },
@@ -617,11 +619,11 @@ const predChart = new Chart(ctx, {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: '#0f1c30',
-        borderColor: '#1e2d45',
+        backgroundColor: ct.tooltipBg,
+        borderColor: ct.tooltipBorder,
         borderWidth: 1,
-        titleColor: '#94a3b8',
-        bodyColor: '#e2e8f0',
+        titleColor: ct.tooltipText,
+        bodyColor: ct.tooltipText,
         titleFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
         bodyFont: { family: "'Atkinson Hyperlegible Mono', monospace", size: 11 },
         filter: item => !item.dataset.label.includes('__'),
@@ -640,7 +642,7 @@ const predChart = new Chart(ctx, {
       x: {
         type: 'linear',
         ticks: {
-          color: '#64748b',
+          color: ct.tick,
           font: { size: 10 },
           maxTicksLimit: 12,
           callback: v => {
@@ -648,22 +650,24 @@ const predChart = new Chart(ctx, {
             return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
           },
         },
-        grid: { color: 'rgba(255,255,255,0.04)' },
+        grid: { color: ct.grid },
       },
       y: {
         reverse: true,
-        title: { display: true, text: 'Finish time', color: '#64748b', font: { size: 10 } },
+        title: { display: true, text: 'Finish time', color: ct.tick, font: { size: 10 } },
         ticks: {
-          color: '#64748b',
+          color: ct.tick,
           font: { family: "'Atkinson Hyperlegible Mono', monospace", size: 10 },
           callback: v => fmtDuration(v),
           maxTicksLimit: 8,
         },
-        grid: { color: 'rgba(255,255,255,0.04)' },
+        grid: { color: ct.grid },
       },
     },
   },
 });
+
+onThemeChange(() => applyChartTheme(predChart));
 
 // Legend — only show main line datasets, but toggling also hides the band pairs
 function buildLegend() {
