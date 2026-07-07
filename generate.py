@@ -27,7 +27,11 @@ AI_CALORIE_STRATA_CACHE_PATH = Path(__file__).parent / "ai-calorie-strata-cache.
 AI_RECENT_CACHE_PATH      = Path(__file__).parent / "ai-recent-cache.json"
 ACTIVITIES_MANIFEST_PATH  = Path(__file__).parent / "dist" / "activities-manifest.json"
 BEST_EFFORTS_CACHE_PATH   = Path(__file__).parent / "best-efforts-cache.json"
-ACTIVITIES_MANIFEST_VERSION = "layout-v8"  # bump when activity.html template changes
+ACTIVITIES_MANIFEST_VERSION = "layout-v12"  # bump when activity.html template changes
+
+# Notable/badge tier sort order: broadest achievement window first, fun
+# "special" tags last (used when capping how many badges a list view shows).
+NOTABLE_TIER_ORDER = {"pr": 0, "milestone": 1, "hot": 2, "good": 3, "ok": 4, "muted": 5, "special": 6}
 
 # Calorie strata: (lower_bound_inclusive, label_description)
 # Each stratum gets one healthy + one unhealthy AI-generated food equivalent.
@@ -2077,14 +2081,13 @@ def fetch_recent_activities_with_notables(
     days: int = 30,
 ) -> list[dict]:
     """Return activities from the last N days, enriched with notables and best splits."""
-    _TIER_ORDER = {"pr": 0, "milestone": 1, "hot": 2, "good": 3, "ok": 4, "muted": 5}
     cutoff = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
     result = []
     for a in all_activities:
         if a["date"] < cutoff:
             continue
         aid = a["activity_id"]
-        ns = sorted(all_notables.get(aid, []), key=lambda n: _TIER_ORDER.get(n["tier"], 9))
+        ns = sorted(all_notables.get(aid, []), key=lambda n: NOTABLE_TIER_ORDER.get(n["tier"], 9))
         result.append({
             **a,
             "notables": [
@@ -2098,7 +2101,7 @@ def fetch_recent_activities_with_notables(
     return result
 
 
-RECENT_AI_VERSION = "v1"
+RECENT_AI_VERSION = "v2"
 
 def generate_recent_ai_narrative(
     recent_activities: list[dict],
@@ -2151,6 +2154,7 @@ def generate_recent_ai_narrative(
     if latest_vo2:
         lines.append(f"Most recent VO2max reading: {latest_vo2:.1f}")
 
+    today_date = date.today()
     lines.append("\nPer-activity detail (newest first):")
     for a in recent_activities:
         pace    = a.get("pace_mile", "—")
@@ -2163,7 +2167,19 @@ def generate_recent_ai_narrative(
         anaero_te = a.get("anaerobic_training_effect")
         ns_str  = ", ".join(n["label"] for n in a.get("notables", [])[:5])
 
-        parts = [f"  {a['date']}: {miles:.1f}mi @ {pace}/mi"]
+        try:
+            act_date = datetime.strptime(a["date"], "%Y-%m-%d").date()
+            days_ago = (today_date - act_date).days
+            if days_ago == 0:
+                ago_str = "today"
+            elif days_ago == 1:
+                ago_str = "yesterday"
+            else:
+                ago_str = f"{days_ago} days ago"
+        except (ValueError, KeyError):
+            ago_str = ""
+
+        parts = [f"  {a['date']} ({ago_str}): {miles:.1f}mi @ {pace}/mi"]
         if hr:
             parts.append(f"HR {hr:.0f}")
         if load:
@@ -2191,17 +2207,27 @@ def generate_recent_ai_narrative(
     for a in recent_activities:
         try:
             d = datetime.strptime(a["date"], "%Y-%m-%d")
-            wk = d.strftime("%Y-W%V")
+            wk = d.strftime("%G-W%V")
         except (ValueError, KeyError):
             continue
         week_miles[wk] += a.get("miles", 0)
         week_load[wk]  += a.get("activity_training_load") or 0
         week_runs[wk]  += 1
     if week_miles:
-        lines.append("\nWeekly breakdown (last 30 days):")
+        lines.append("\nWeekly breakdown (last 30 days, Monday–Sunday):")
+        today_date_wk = date.today()
+        current_wk = today_date_wk.strftime("%G-W%V")
         for wk in sorted(week_miles.keys()):
+            wk_num = (datetime.strptime(current_wk + "-1", "%G-W%V-%u").date() -
+                      datetime.strptime(wk + "-1", "%G-W%V-%u").date()).days // 7
+            if wk_num == 0:
+                rel = "this week (in progress)"
+            elif wk_num == 1:
+                rel = "last week"
+            else:
+                rel = f"{wk_num} weeks ago"
             lines.append(
-                f"  {wk}: {week_miles[wk]:.1f} mi, "
+                f"  {wk} ({rel}): {week_miles[wk]:.1f} mi, "
                 f"{week_runs[wk]} runs, load {week_load[wk]:.0f}"
             )
 
@@ -2211,29 +2237,40 @@ def generate_recent_ai_narrative(
 
     if future_races:
         lines.append("\nUpcoming Races:")
+        today_date_races = date.today()
         for r in future_races:
             tgt = r.get("target_time", "no target")
+            try:
+                race_date = datetime.strptime(r["date"], "%Y-%m-%d").date()
+                days_until = (race_date - today_date_races).days
+                weeks_until = r.get("weeks_until", days_until // 7)
+                days_rem = r.get("days_remainder", days_until % 7)
+                timing = f"{days_until} days ({weeks_until}w {days_rem}d) away"
+            except (ValueError, KeyError):
+                timing = f"{r.get('weeks_until', 0)}w {r.get('days_remainder', 0)}d away"
             lines.append(
-                f"  {r['name']} on {r['date']} "
-                f"({r.get('weeks_until', 0)}w {r.get('days_remainder', 0)}d away) "
-                f"— {r.get('distance_label', '')} — target {tgt}"
+                f"  {r['name']} on {r['date']} ({timing})"
+                f" — {r.get('distance_label', '')} — target {tgt}"
             )
 
     data_text = "\n".join(lines)
 
     prompt = f"""You are an expert running coach reviewing a runner's recent training data (male, age 45 in 2026).
 
+TODAY'S DATE: {today_str}
+Each activity in the data includes how many days ago it occurred (e.g. "3 days ago", "yesterday"). Use these relative references naturally in your narrative — say "your run 3 days ago" or "last Tuesday's workout" rather than raw dates. For upcoming races, use the total days remaining (e.g. "you have 18 days until X").
+
 RUNNER DATA:
 {data_text}
 
-Write a coaching narrative in 4–5 plain paragraphs (no headers, no bullet points). Be specific — reference actual dates, distances, paces, HR values, training load numbers, and weekly patterns from the data. Cover:
+Write a coaching narrative in 4–5 plain paragraphs (no headers, no bullet points). Be specific — reference actual distances, paces, HR values, training load numbers, weekly patterns, and relative timing from the data. Cover:
 1. Current training state: what the CTL/ATL/TSB numbers mean right now, the trend over the past month, and whether the weekly volume and load are appropriate.
 2. Notable patterns in the detail: HR trends, pace-to-HR relationships (aerobic efficiency), cadence, training effect scores, any intensity spikes or drops, and what these reveal about current fitness vs. fatigue.
 3. Specific achievements or concerns from individual sessions — call out the best runs, any signs of overreach, and recovery quality.
 4. What to prioritise in the next 30 days — be concrete about volume, intensity, long run length, and recovery needs.
-5. If there are upcoming races, targeted advice on how the current fitness translates to race readiness and what to adjust.
+5. If there are upcoming races, targeted advice on race readiness given how many days remain, and what to adjust.
 
-Write as a knowledgeable coach speaking directly to the athlete. Cite specific numbers."""
+Write as a knowledgeable coach speaking directly to the athlete. Cite specific numbers and use relative time references throughout."""
 
     try:
         content = _call_ollama(prompt)
@@ -3121,6 +3158,12 @@ def fetch_all_activities_list(conn: sqlite3.Connection) -> list[dict]:
             r["hr_time_in_zone_4"], r["hr_time_in_zone_5"],
         )
         r["elev_gain_fmt"] = f"{int(r['elevation_gain'] * 3.28084)}" if r.get("elevation_gain") else None
+        dist_mi = r.get("miles") or 0
+        elev_g  = r.get("elevation_gain") or 0
+        elev_l  = r.get("elevation_loss") or 0
+        r["elev_gain_per_mi"] = round(elev_g * 3.28084 / dist_mi, 1) if dist_mi >= 3 else None
+        r["elev_loss_per_mi"] = round(elev_l * 3.28084 / dist_mi, 1) if dist_mi >= 3 else None
+        r["long_run_pace"]    = r["average_speed"] if dist_mi >= 13 and r.get("average_speed") else None
         # Local start hour (float) for "earliest run" notables
         if r.get("start_ts"):
             ts_clean = r["start_ts"].rstrip("Z").split(".")[0]  # "2024-01-14T08:30:00"
@@ -3468,6 +3511,34 @@ def compute_achievements(
     }
 
 
+def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> date:
+    """Return the nth occurrence of weekday (0=Mon … 6=Sun) in the given month."""
+    first = date(year, month, 1)
+    days_ahead = (weekday - first.weekday()) % 7
+    return first + timedelta(days=days_ahead + (n - 1) * 7)
+
+
+def _moon_age(d: date) -> float:
+    """Days elapsed since last new moon (0 = new, ~14.77 = full, ~29.53 = next new)."""
+    ref = date(2000, 1, 6)  # known new moon: 2000-01-06 18:14 UTC
+    synodic = 29.53059
+    age = (d - ref).days % synodic
+    return age if age >= 0 else age + synodic
+
+
+def _sunrise_sunset_local(lat_deg: float, lon_deg: float, d: date, tz_h: float):
+    """Return (sunrise_h, sunset_h) in local 24h clock, or None on polar day/night."""
+    doy = d.timetuple().tm_yday
+    dec = math.radians(-23.45 * math.cos(math.radians(360 / 365 * (doy + 10))))
+    lat = math.radians(lat_deg)
+    cos_ha = -math.tan(lat) * math.tan(dec)
+    if abs(cos_ha) > 1:
+        return None
+    ha = math.degrees(math.acos(cos_ha))
+    solar_noon_utc = 12.0 - lon_deg / 15.0
+    return (solar_noon_utc - ha / 15 + tz_h, solar_noon_utc + ha / 15 + tz_h)
+
+
 def compute_notables(
     activities: list[dict],
     effort_splits: dict[int, list[dict]],
@@ -3540,23 +3611,53 @@ def compute_notables(
                     })
                     break
 
-    award_field("longest_run",       "Longest Run",           "↔",
+    award_field("longest_run",       "Longest Run",           "📏",
                 "distance", "max",    lambda v: f"{v/1000:.1f} km")
-    award_field("longest_duration",  "Longest Duration",      "⏱",
+    award_field("longest_duration",  "Longest Duration",      "⏳",
                 "duration", "max",    fmt_duration,            "duration", 300)
-    award_field("most_elevation",    "Most Elevation Gain",   "↑",
+    award_field("most_elevation",    "Most Elevation Gain",   "⛰️",
                 "elevation_gain", "max", lambda v: f"{int(v * 3.28084)} ft", "elevation_gain", 10)
-    award_field("highest_load",      "Highest Training Load", "⚡",
+    award_field("highest_load",      "Highest Training Load", "💪",
                 "activity_training_load", "max", lambda v: f"{v:.0f}",
                 "activity_training_load", 1)
-    award_field("most_calories",     "Most Calories",         "◈",
+    award_field("most_calories",     "Most Calories",         "🔥",
                 "calories", "max",    lambda v: f"{int(v):,} kcal", "calories", 100)
-    award_field("lowest_avg_hr",     "Lowest Avg HR",         "♡",
+    award_field("lowest_avg_hr",     "Lowest Avg HR",         "💚",
                 "average_hr", "min",  lambda v: f"{v:.0f} bpm",  "distance", 5000)
-    award_field("fastest_pace",      "Fastest Pace",          "▶",
+    award_field("fastest_pace",      "Fastest Pace",          "🚀",
                 "average_speed", "max", fmt_pace_mile,            "distance", 5000)
-    award_field("earliest_run",      "Earliest Run",          "◑",
+    award_field("earliest_run",      "Earliest Run",          "🌅",
                 "local_hour", "min",  fmt_local_time)
+    award_field("latest_run",        "Latest Run",            "🌆",
+                "local_hour", "max",  fmt_local_time)
+
+    # ── Descent / steepness ───────────────────────────────────────────
+    award_field("most_descent",      "Most Descent",          "🏔️",
+                "elevation_loss", "max", lambda v: f"{int(v * 3.28084)} ft", "elevation_loss", 10)
+    award_field("steepest_climb",    "Steepest Climb",        "🧗",
+                "elev_gain_per_mi", "max", lambda v: f"{int(v)} ft/mi", "miles", 3.0)
+    award_field("steepest_descent",  "Steepest Descent",      "⛷️",
+                "elev_loss_per_mi", "max", lambda v: f"{int(v)} ft/mi", "miles", 3.0)
+
+    # ── Effort / pain cave ────────────────────────────────────────────
+    award_field("highest_avg_hr",    "Highest Avg HR",        "❤️",
+                "average_hr", "max",  lambda v: f"{v:.0f} bpm",  "distance", 5000)
+    award_field("most_zone5",        "Most Zone 5",           "💥",
+                "hr_time_in_zone_5", "max", fmt_duration,         "hr_time_in_zone_5", 60)
+
+    # ── Fitness markers ───────────────────────────────────────────────
+    award_field("best_aerobic_te",   "Peak Aerobic Effect",   "🫁",
+                "aerobic_training_effect", "max", lambda v: f"{v:.1f}", "distance", 3000)
+    award_field("best_anaerobic_te", "Peak Anaerobic Effect", "⚡",
+                "anaerobic_training_effect", "max", lambda v: f"{v:.1f}", "distance", 3000)
+    award_field("highest_cadence",   "Highest Cadence",       "🥁",
+                "avg_running_cadence", "max", lambda v: f"{int(v)} spm", "distance", 3000)
+    award_field("best_stride",       "Best Stride",           "👟",
+                "avg_stride_length", "max", lambda v: f"{v:.2f} m", "distance", 3000)
+
+    # ── Most Leisurely Long Run (slowest pace on a run ≥ 13 mi) ──────
+    award_field("slowest_long_run",  "Most Leisurely Long Run", "🐌",
+                "long_run_pace", "min", fmt_pace_mile)
 
     # ── Split metrics ─────────────────────────────────────────────────
     for _, dist_label in SPLIT_TARGETS:
@@ -3577,7 +3678,7 @@ def compute_notables(
                     notables[aid].append({
                         "key":    f"fastest_{dist_label.lower().replace(' ', '_')}",
                         "label":  f"Fastest {dist_label}",
-                        "icon":   "⚡",
+                        "icon":   "🏁",
                         "window": window_label, "tier": tier,
                         "value":  fmt_spm(val),
                     })
@@ -3586,6 +3687,11 @@ def compute_notables(
     # ── Milestones ─────────────────────────────────────────────────────
     MILE_MILESTONES = [100, 250, 500, 1000, 2500, 5000, 10000]
     RUN_MILESTONES  = [1, 10, 25, 50, 100, 250, 500, 1000]
+    CUM_DIST_MILESTONES = [
+        (2800,   "Ran Across America", "🗺️"),
+        (24901,  "Around the World",   "🌐"),
+        (238855, "To the Moon",        "🚀"),
+    ]
     cum_miles = cum_runs = 0
     for act in sorted_acts:
         aid = act["activity_id"]
@@ -3596,14 +3702,273 @@ def compute_notables(
             if pm < m <= cum_miles:
                 notables[aid].append({
                     "key": "milestone_miles", "label": f"{m:,} Miles",
-                    "icon": "◉", "window": "lifetime", "tier": "milestone", "value": "",
+                    "icon": "🎯", "window": "lifetime", "tier": "milestone", "value": "",
                 })
         for r in RUN_MILESTONES:
             if pr < r <= cum_runs:
                 notables[aid].append({
                     "key": "milestone_runs", "label": f"Run #{r:,}",
-                    "icon": "#", "window": "lifetime", "tier": "milestone", "value": "",
+                    "icon": "🏅", "window": "lifetime", "tier": "milestone", "value": "",
                 })
+        for threshold, label, icon in CUM_DIST_MILESTONES:
+            if pm < threshold <= cum_miles:
+                notables[aid].append({
+                    "key": f"cumulative_{threshold}", "label": label,
+                    "icon": icon, "window": "lifetime", "tier": "milestone", "value": "",
+                })
+
+    # ── Special / Oddball notables ─────────────────────────────────────
+    # Non-ranking: tag activities for what they are — celestial, calendar, location, oddities.
+
+    # Pre-compute lookups used across the loop
+    date_run_count: dict[str, int] = {}
+    for act in sorted_acts:
+        date_run_count[act["date"]] = date_run_count.get(act["date"], 0) + 1
+
+    date_set = set(date_run_count.keys())
+
+    # Worst pace (Turtle Trophy) — slowest average pace on a run ≥ 1 mile
+    pace_eligible = [a for a in sorted_acts if a.get("average_speed") and a.get("miles", 0) >= 1.0]
+    worst_pace_speed = min(a["average_speed"] for a in pace_eligible) if pace_eligible else None
+    worst_pace_aid   = next(
+        (a["activity_id"] for a in pace_eligible if a["average_speed"] == worst_pace_speed), None
+    ) if worst_pace_speed else None
+
+    # Century month — which activity pushed a calendar month over 100 miles?
+    century_month_aids: set[int] = set()
+    month_running_total: dict[tuple, float] = {}
+    for act in sorted_acts:
+        d_str_ = act.get("date", "-")
+        if d_str_ == "-":
+            continue
+        d_ = date.fromisoformat(d_str_)
+        key_ = (d_.year, d_.month)
+        prev_ = month_running_total.get(key_, 0)
+        curr_ = prev_ + act.get("miles", 0)
+        month_running_total[key_] = curr_
+        if prev_ < 100 <= curr_:
+            century_month_aids.add(act["activity_id"])
+
+    # Run-iversary — same calendar date as first ever run
+    first_run_date = sorted_acts[0]["date"] if sorted_acts else None
+    first_run_d    = date.fromisoformat(first_run_date) if first_run_date else None
+    first_run_md   = (first_run_d.month, first_run_d.day) if first_run_d else None
+
+    seen_countries: set[str] = set()
+    seen_states:    set[str] = set()
+    seen_years:     set[int] = set()
+
+    for act in sorted_acts:
+        aid    = act["activity_id"]
+        d_str  = act.get("date", "-")
+        if d_str == "-":
+            continue
+        d          = date.fromisoformat(d_str)
+        local_hour = act.get("local_hour")
+        tz_h       = float(act.get("timezone_offset_hours") or 0)
+        duration_h = (act.get("duration") or 0) / 3600
+        miles      = act.get("miles", 0)
+        dow        = d.weekday()          # 0=Monday … 6=Sunday
+        is_weekday = dow < 5
+        atype      = act.get("activity_type_key", "")
+
+        def _tag(key, label, icon, window_label, value=""):
+            notables[aid].append({
+                "key": key, "label": label, "icon": icon,
+                "window": window_label, "tier": "special", "value": value,
+            })
+
+        # ── First run of each calendar year ──────────────────────────
+        yr = d.year
+        if yr not in seen_years:
+            seen_years.add(yr)
+            _tag("first_of_year", f"First Run of {yr}", "🎉", "first of year")
+
+        # ── Calendar: existing + new holidays ────────────────────────
+        if d.month == 1 and d.day == 1:
+            _tag("new_years_run",    "New Year's Day",     "🎆", "New Year's")
+        if d.month == 12 and d.day == 31:
+            _tag("nye_run",          "New Year's Eve",     "🥂", "New Year's Eve")
+        if d.month == 2 and d.day == 14:
+            _tag("valentines_run",   "Valentine's Day",    "💝", "Valentine's")
+        if d.month == 2 and d.day == 29:
+            _tag("leap_day_run",     "Leap Day",           "🐸", "leap day")
+        if d.month == 3 and d.day == 17:
+            _tag("st_patricks_run",  "St. Patrick's Day",  "🍀", "St. Patrick's")
+        if d.month == 7 and d.day == 4:
+            _tag("independence_run", "Independence Day",   "🇺🇸", "July 4th")
+        if d.month == 10 and d.day == 31:
+            _tag("halloween_run",    "Halloween Run",      "🎃", "Halloween")
+        if d.month == 12 and d.day == 24:
+            _tag("xmas_eve_run",     "Christmas Eve",      "🎄", "Christmas Eve")
+        if d.month == 12 and d.day == 25:
+            _tag("christmas_run",    "Christmas Day",      "🎄", "Christmas")
+        if d.month == 11:
+            thanksgiving = _nth_weekday_of_month(d.year, 11, 3, 4)  # 4th Thursday
+            if d == thanksgiving:
+                _tag("thanksgiving_run", "Thanksgiving Run", "🦃", "Thanksgiving")
+
+        # ── Solstice / Equinox ────────────────────────────────────────
+        if d.month == 6 and 20 <= d.day <= 22:
+            _tag("solstice_run",  "Summer Solstice", "☀️", "solstice")
+        if d.month == 12 and 20 <= d.day <= 22:
+            _tag("solstice_run",  "Winter Solstice", "❄️", "solstice")
+        if d.month == 3 and 19 <= d.day <= 21:
+            _tag("equinox_run",   "Spring Equinox",  "⚖️", "equinox")
+        if d.month == 9 and 21 <= d.day <= 23:
+            _tag("equinox_run",   "Fall Equinox",    "⚖️", "equinox")
+
+        # ── Palindrome date (MMDDYYYY) ────────────────────────────────
+        digits = f"{d.month:02d}{d.day:02d}{d.year:04d}"
+        if digits == digits[::-1]:
+            _tag("palindrome_run", "Palindrome Date", "🔢", "palindrome")
+
+        # ── Pi Day ────────────────────────────────────────────────────
+        if d.month == 3 and d.day == 14:
+            if miles > 0 and abs(miles - 3.14159) < 0.05:
+                _tag("pi_run", "π Miles on Pi Day!", "🥧", "Pi Day")
+            else:
+                _tag("pi_day_run", "Pi Day Run", "🥧", "Pi Day")
+
+        # ── Moon phase ────────────────────────────────────────────────
+        moon_age = _moon_age(d)
+        if 13.0 <= moon_age <= 16.5:
+            _tag("full_moon_run", "Full Moon Run", "🌕", "full moon")
+        elif moon_age < 1.5 or moon_age > 28.0:
+            _tag("new_moon_run", "New Moon Run", "🌑", "new moon")
+
+        # ── Sunrise / Sunset ──────────────────────────────────────────
+        lat = act.get("start_latitude")
+        lon = act.get("start_longitude")
+        if lat is not None and lon is not None and local_hour is not None:
+            ss = _sunrise_sunset_local(lat, lon, d, tz_h)
+            if ss:
+                sunrise_h, sunset_h = ss
+                if abs(local_hour - sunrise_h) <= 0.5:
+                    _tag("sunrise_run", "Sunrise Run", "🌄", "sunrise")
+                end_h = local_hour + duration_h
+                if abs(end_h - sunset_h) <= 0.5:
+                    _tag("sunset_run", "Sunset Run", "🌇", "sunset")
+
+        # ── Time of day ───────────────────────────────────────────────
+        if local_hour is not None:
+            if local_hour < 5.0:
+                _tag("predawn_run",     "Pre-Dawn Run",    "🌌", "pre-dawn")
+            elif 5.0 <= local_hour < 6.0 and is_weekday:
+                _tag("precoffee_club",  "Pre-Coffee Club", "☕", "pre-coffee")
+            if local_hour >= 22.0:
+                _tag("late_night_run",  "Late Night Run",  "🌙", "late night")
+            elif 20.0 <= local_hour < 22.0 and is_weekday:
+                _tag("reluctant_runner","Reluctant Runner", "😴", "school night")
+
+        # ── Day of week personality ───────────────────────────────────
+        if dow == 0:
+            _tag("monday_miles",    "Monday Miles",    "😤", "Monday")
+        elif dow == 4:
+            _tag("friday_feeling",  "Friday Feeling",  "🍻", "Friday")
+
+        # ── Number-nerd distances ─────────────────────────────────────
+        if miles > 1.0 and not (d.month == 3 and d.day == 14):
+            if abs(miles - 3.14159) < 0.05:
+                _tag("pi_distance",  "Pi Miles",       "🥧", "π miles")
+        if miles > 0:
+            if abs(miles - 1.618) < 0.05:
+                _tag("golden_run",  "Golden Run",       "✨", "φ miles")
+            if abs(miles - 7.0) < 0.05:
+                _tag("lucky_7",     "Lucky 7",          "🎲", "7.0 miles")
+            if abs(miles - 7.77) < 0.05:
+                _tag("jackpot",     "Jackpot",          "🎰", "7.77 miles")
+            whole = round(miles)
+            if whole >= 2 and abs(miles - whole) < 0.05:
+                _tag("whole_number", f"Whole {whole} Miles", "💯", f"{whole} even")
+            dist_m = act.get("distance") or 0
+            if abs(dist_m - 10000) < 50 and not act.get("is_race"):
+                _tag("perfect_10k", "Perfect 10K",     "💯", "exactly 10K")
+
+        # ── Calories-based humor ──────────────────────────────────────
+        calories = act.get("calories") or 0
+        if 700 <= calories <= 950:
+            _tag("pizza_run", "Pizza Run", "🍕", "~1 pizza's worth")
+        elif 150 <= calories <= 220:
+            _tag("beer_run",  "Beer Run",  "🍺", "~1 beer's worth")
+
+        # ── Short run ─────────────────────────────────────────────────
+        if 0 < miles < 1.5:
+            _tag("still_counts", "Still Counts", "😅", "short but real")
+
+        # ── Turtle Trophy — all-time worst pace (≥ 1 mi runs) ────────
+        if worst_pace_aid and aid == worst_pace_aid:
+            _tag("turtle_trophy", "Turtle Trophy", "🐢", "slowest ever")
+
+        # ── Run type personality ──────────────────────────────────────
+        if atype == "track_running":
+            _tag("track_day",     "Track Day",       "🛤️", "track")
+        if atype == "treadmill_running":
+            _tag("dreadmill",     "Dreadmill",        "😩", "treadmill")
+        if atype == "trail_running":
+            if act.get("is_race"):
+                _tag("trail_race",  "Trail Race",     "🌿", "trail race")
+            else:
+                _tag("into_woods",  "Into the Woods", "🌲", "trail")
+
+        # ── Biomechanics ──────────────────────────────────────────────
+        cadence = act.get("avg_running_cadence")
+        if cadence:
+            if 178 <= cadence <= 182:
+                _tag("club_180",   "180 Club",       "🎵", "perfect cadence")
+            elif cadence > 185:
+                _tag("metronome",  "Metronome",       "🤖", f"{int(cadence)} spm")
+        vo = act.get("avg_vertical_oscillation")  # centimetres
+        if vo:
+            if vo > 10:
+                _tag("kangaroo",   "Kangaroo",        "🦘", f"{vo:.1f} cm bounce")
+            elif vo < 6:
+                _tag("low_rider",  "Low Rider",        "🪨", f"{vo:.1f} cm")
+
+        # ── Temperature ───────────────────────────────────────────────
+        min_temp = act.get("min_temperature")
+        max_temp = act.get("max_temperature")
+        if min_temp is not None:
+            if min_temp < 0:
+                _tag("frozen_chosen", "Frozen Chosen", "🥶", f"{min_temp:.0f}°C")
+            elif d.month in (12, 1, 2) and min_temp < 5:
+                _tag("snowbird",      "Snowbird",       "☃️", f"{min_temp:.0f}°C")
+        if max_temp is not None and max_temp > 35:
+            _tag("heat_warrior", "Heat Warrior", "🌡️", f"{max_temp:.0f}°C")
+
+        # ── Consecutive days / streaks ────────────────────────────────
+        yesterday = (d - timedelta(days=1)).isoformat()
+        if yesterday in date_set:
+            _tag("back_to_back", "Back-to-Back", "🔁", "consecutive days")
+        week_prior = [(d - timedelta(days=i)).isoformat() for i in range(1, 7)]
+        if all(wd in date_set for wd in week_prior):
+            _tag("week_warrior", "Week Warrior", "📅", "7 days straight")
+
+        # ── Century month ─────────────────────────────────────────────
+        if aid in century_month_aids:
+            _tag("century_month", "Century Month", "🏗️", "100 mi this month")
+
+        # ── Run-iversary ──────────────────────────────────────────────
+        if first_run_md and first_run_d and d > first_run_d:
+            if (d.month, d.day) == first_run_md:
+                years = d.year - first_run_d.year
+                _tag("runiversary", f"{years}-Year Run-iversary", "🎂", "run-iversary")
+
+        # ── Double day ────────────────────────────────────────────────
+        if date_run_count.get(d_str, 0) >= 2:
+            _tag("double_day", "Double Day", "✌️", "double day")
+
+        # ── First run in a new country / US state ─────────────────────
+        if lat is not None and lon is not None:
+            country = _detect_country(lat, lon)
+            if country and country not in seen_countries:
+                seen_countries.add(country)
+                _tag("new_country", f"First Run in {country}", "✈️", "new country")
+            if country == "United States":
+                state = _detect_us_state(lat, lon)
+                if state and state not in seen_states:
+                    seen_states.add(state)
+                    _tag("new_state", f"First Run in {state}", "📍", "new state")
 
     return notables
 
@@ -3664,6 +4029,17 @@ def build_activity_pages(
                 )
         lap_splits = fetch_lap_splits(cursor, int(aid))
 
+        # Mark best/worst mile for row highlighting
+        if mile_splits:
+            paces  = [s["split_s"] for s in mile_splits]
+            best_s = min(paces)
+            wrst_s = max(paces)
+            for s in mile_splits:
+                s["is_best"]  = (s["split_s"] == best_s)
+                s["is_worst"] = (s["split_s"] == wrst_s)
+
+        insights, hr_drift = compute_activity_insights(mile_splits, chart_series, act)
+
         idx     = id_to_idx.get(aid, -1)
         prev_id = sorted_ids[idx - 1] if idx > 0 else None
         next_id = sorted_ids[idx + 1] if 0 <= idx < len(sorted_ids) - 1 else None
@@ -3682,6 +4058,8 @@ def build_activity_pages(
             notables=all_notables.get(int(aid), []),
             calorie_healthy=calorie_pair[0] if calorie_pair else None,
             calorie_unhealthy=calorie_pair[1] if calorie_pair else None,
+            insights=insights,
+            hr_drift=hr_drift,
         )
         out_path.write_text(html, encoding="utf-8")
         manifest[aid] = update_ts
@@ -3763,6 +4141,205 @@ def fetch_lap_splits(cursor: sqlite3.Cursor, activity_id: int) -> list[dict]:
             "descent_ft": round(descent_m * 3.28084) if descent_m else None,
         })
     return laps
+
+
+def compute_activity_insights(
+    mile_splits: list[dict],
+    chart_series: list[dict],
+    act: dict,
+) -> tuple[list[dict], int | None]:
+    """
+    Returns (insights, hr_drift_bpm).
+    Generates up to 5 tagged insight cards for the activity page.
+    hr_drift_bpm is last-third minus first-third average HR (None if insufficient data).
+    """
+    insights: list[dict] = []
+    hr_drift: int | None = None
+
+    # ── Cardiac drift (from 0.1-mile HR data) ──
+    hr_pts = [d["hr"] for d in chart_series if d.get("hr") is not None]
+    if len(hr_pts) >= 9:
+        third     = len(hr_pts) // 3
+        first_avg = round(sum(hr_pts[:third]) / third)
+        last_avg  = round(sum(hr_pts[-third:]) / third)
+        hr_drift  = last_avg - first_avg
+        if abs(hr_drift) <= 2:
+            insights.append({
+                "tag_class": "teal",
+                "tag_text":  "Cardiac drift",
+                "title":     f"Near-zero HR drift ({hr_drift:+d} bpm)",
+                "body":      (
+                    f"First-third avg {first_avg} bpm → last-third {last_avg} bpm. "
+                    f"Flat HR over the run signals strong aerobic conditioning and good hydration."
+                ),
+            })
+        elif hr_drift > 0:
+            insights.append({
+                "tag_class": "amber" if hr_drift <= 8 else "red",
+                "tag_text":  "Cardiac drift",
+                "title":     f"+{hr_drift} bpm drift start to finish",
+                "body":      (
+                    f"First-third avg {first_avg} bpm → last-third {last_avg} bpm. "
+                    + ("Normal aerobic fatigue response." if hr_drift <= 8
+                       else "High drift — check hydration and heat load.")
+                ),
+            })
+        else:
+            insights.append({
+                "tag_class": "blue",
+                "tag_text":  "Cardiac drift",
+                "title":     f"{hr_drift} bpm HR drop finish vs start",
+                "body":      (
+                    f"First-third avg {first_avg} bpm → last-third {last_avg} bpm. "
+                    f"Declining HR while maintaining pace often reflects a strong warm-up effect."
+                ),
+            })
+
+    # ── Pacing consistency (spread) ──
+    if len(mile_splits) >= 3:
+        paces      = [s["split_s"] for s in mile_splits]
+        fastest_s  = min(paces)
+        slowest_s  = max(paces)
+        spread_s   = slowest_s - fastest_s
+        fast_mile  = mile_splits[paces.index(fastest_s)]["mile"]
+        slow_mile  = mile_splits[paces.index(slowest_s)]["mile"]
+        spread_fmt = f"{int(spread_s // 60)}:{int(spread_s % 60):02d}"
+        n          = len(mile_splits)
+
+        if spread_s <= 30:
+            insights.append({
+                "tag_class": "teal",
+                "tag_text":  "Pacing",
+                "title":     f"{spread_fmt}/mi window across {n} miles",
+                "body":      (
+                    f"Mi {fast_mile} fastest at {fmt_pace_from_sec_per_mi(fastest_s)}/mi; "
+                    f"mi {slow_mile} slowest at {fmt_pace_from_sec_per_mi(slowest_s)}/mi. "
+                    f"A {spread_fmt} spread is excellent pacing discipline."
+                ),
+            })
+        elif spread_s <= 90:
+            insights.append({
+                "tag_class": "blue",
+                "tag_text":  "Pacing",
+                "title":     f"{spread_fmt}/mi spread — solid effort",
+                "body":      (
+                    f"Fastest: mi {fast_mile} at {fmt_pace_from_sec_per_mi(fastest_s)}/mi. "
+                    f"Slowest: mi {slow_mile} at {fmt_pace_from_sec_per_mi(slowest_s)}/mi."
+                ),
+            })
+        else:
+            insights.append({
+                "tag_class": "amber",
+                "tag_text":  "Pacing",
+                "title":     f"{spread_fmt}/mi spread — variable effort",
+                "body":      (
+                    f"Fastest: mi {fast_mile} at {fmt_pace_from_sec_per_mi(fastest_s)}/mi. "
+                    f"Slowest: mi {slow_mile} at {fmt_pace_from_sec_per_mi(slowest_s)}/mi. "
+                    f"Terrain, intervals, or conditions likely explain the range."
+                ),
+            })
+
+    # ── Pace drift: halves (4–7 mi) or quarters (8+ mi) ──
+    if len(mile_splits) >= 4:
+        paces = [s["split_s"] for s in mile_splits]
+        n     = len(paces)
+        use_quarters = n >= 8
+
+        if use_quarters:
+            q = n // 4
+            segments = [
+                ("Q1", paces[:q]),
+                ("Q2", paces[q:2*q]),
+                ("Q3", paces[2*q:3*q]),
+                ("Q4", paces[3*q:]),
+            ]
+        else:
+            h = n // 2
+            segments = [
+                ("First half", paces[:h]),
+                ("Second half", paces[h:]),
+            ]
+
+        seg_avgs   = [(lbl, sum(p) / len(p)) for lbl, p in segments]
+        drift_s    = seg_avgs[-1][1] - seg_avgs[0][1]
+        abs_drift  = abs(drift_s)
+        drift_fmt  = f"{int(abs_drift // 60)}:{int(abs_drift % 60):02d}"
+        segs_label = "quarters" if use_quarters else "halves"
+        body_parts = [f"{lbl} {fmt_pace_from_sec_per_mi(avg)}" for lbl, avg in seg_avgs]
+        body       = " → ".join(body_parts) + "/mi"
+
+        if abs_drift < 8:
+            insights.append({
+                "tag_class": "teal",
+                "tag_text":  "Pace drift",
+                "title":     f"Even across {segs_label}",
+                "body":      body,
+            })
+        elif drift_s < 0:
+            insights.append({
+                "tag_class": "teal",
+                "tag_text":  "Pace drift",
+                "title":     f"Negative: {drift_fmt}/mi faster by end",
+                "body":      body,
+            })
+        elif drift_s <= 30:
+            insights.append({
+                "tag_class": "amber",
+                "tag_text":  "Pace drift",
+                "title":     f"+{drift_fmt}/mi drift across {segs_label}",
+                "body":      body,
+            })
+        else:
+            insights.append({
+                "tag_class": "red",
+                "tag_text":  "Pace drift",
+                "title":     f"+{drift_fmt}/mi fade across {segs_label}",
+                "body":      body,
+            })
+
+    # ── Temperature ──
+    t_min = act.get("min_temperature")
+    t_max = act.get("max_temperature")
+    if t_min is not None and t_max is not None:
+        avg_c   = (t_min + t_max) / 2
+        range_f = f"{round(t_min * 9/5 + 32)}–{round(t_max * 9/5 + 32)}°F"
+        if avg_c >= 27:
+            insights.append({
+                "tag_class": "red" if avg_c >= 30 else "amber",
+                "tag_text":  "Heat",
+                "title":     f"Running in {range_f} — real heat load",
+                "body":      (
+                    f"Heat typically inflates HR by 5–10 bpm vs cooler conditions. "
+                    f"Your HR data likely overstates effort compared to a 60°F equivalent run."
+                ),
+            })
+        elif avg_c <= 2:
+            insights.append({
+                "tag_class": "blue",
+                "tag_text":  "Cold",
+                "title":     f"Running in {range_f} — cold conditions",
+                "body":      (
+                    f"Cold air increases breathing effort and early-mile stiffness. "
+                    f"HR may understate perceived exertion in the first few miles."
+                ),
+            })
+
+    # ── Biggest climb mile ──
+    elev_splits = [s for s in mile_splits if s.get("elev_change_ft") is not None]
+    if elev_splits:
+        top = max(elev_splits, key=lambda s: s["elev_change_ft"])
+        if top["elev_change_ft"] >= 50:
+            insights.append({
+                "tag_class": "amber",
+                "tag_text":  "Elevation",
+                "title":     f"Mile {top['mile']} — biggest climb (+{top['elev_change_ft']}ft)",
+                "body":      (
+                    f"Ran that mile in {top['pace_fmt']}/mi. "
+                    f"Check the GAP column for the grade-adjusted effort read."
+                ),
+            })
+
+    return insights[:5], hr_drift
 
 
 def fetch_sleep_data(conn: sqlite3.Connection) -> dict:
@@ -4141,9 +4718,88 @@ def build_site():
 
     # ── best efforts
     best_efforts = compute_best_efforts_by_distance(all_activities, all_effort_splits)
+
+    scatter_pts: list[dict] = []
+    for _a in all_activities:
+        _spd = _a.get("average_speed") or 0
+        if _spd <= 0:
+            continue
+        _spm = 1609.34 / _spd
+        if not (180 <= _spm <= 1200):
+            continue
+        _mi = _a.get("miles") or 0
+        if _mi < 0.3:
+            continue
+        scatter_pts.append({
+            "mi":   round(_mi, 2),
+            "spm":  round(_spm, 1),
+            "date": _a.get("date", ""),
+            "id":   _a["activity_id"],
+            "race": bool(_a.get("is_race")),
+        })
+
+    # PR progression: chronological list of when each key-distance PR was set
+    _PR_LABELS = ["1 mile", "5K", "10K", "Half Marathon", "Marathon"]
+    _act_map   = {a["activity_id"]: a for a in all_activities}
+    pr_prog: dict = {}
+    for _lbl in _PR_LABELS:
+        _dated: list[dict] = []
+        for _aid, _splits in all_effort_splits.items():
+            _act = _act_map.get(_aid)
+            if not _act:
+                continue
+            for _sp in _splits:
+                if _sp.get("label") == _lbl:
+                    _spm = _sp.get("sec_per_mi", 0)
+                    if 180 <= _spm <= 1200:
+                        _dated.append({
+                            "date": _act["date"],
+                            "spm":  round(_spm, 1),
+                            "pace": _sp.get("pace_mile", ""),
+                            "time": _sp.get("duration_fmt", ""),
+                            "id":   _aid,
+                        })
+                    break
+        _dated.sort(key=lambda x: x["date"])
+        _prog: list[dict] = []
+        _best_spm = float("inf")
+        for _e in _dated:
+            if _e["spm"] < _best_spm:
+                _best_spm = _e["spm"]
+                _prog.append(_e)
+        if _prog:
+            pr_prog[_lbl] = _prog
+
+    # Monthly effort density by distance bucket
+    _DBUCKETS = [
+        ("Short",     0,    3),
+        ("Medium",    3,    6),
+        ("Long",      6,   13.2),
+        ("Very Long", 13.2, 999),
+    ]
+    _monthly: dict = {}
+    for _a in all_activities:
+        _mi = _a.get("miles", 0)
+        if _mi < 0.3:
+            continue
+        _mo = (_a.get("date") or "")[:7]
+        if not _mo:
+            continue
+        for _bname, _blo, _bhi in _DBUCKETS:
+            if _blo <= _mi < _bhi:
+                if _mo not in _monthly:
+                    _monthly[_mo] = {b[0]: 0 for b in _DBUCKETS}
+                _monthly[_mo][_bname] += 1
+                break
+    monthly_density = dict(sorted(_monthly.items()))
+
     (DIST_DIR / "best-efforts-data.js").write_text(
-        "const BEST_EFFORTS_DATA = " + json.dumps(best_efforts) + ";\n"
-        "const BEST_EFFORTS_LABELS = " + json.dumps([lbl for _, lbl in SPLIT_TARGETS]) + ";",
+        "const BEST_EFFORTS_DATA = "   + json.dumps(best_efforts)                       + ";\n"
+        "const BEST_EFFORTS_LABELS = " + json.dumps([lbl for _, lbl in SPLIT_TARGETS])  + ";\n"
+        "const RUNS_SCATTER = "        + json.dumps(scatter_pts)                         + ";\n"
+        "const PR_PROG = "             + json.dumps(pr_prog)                             + ";\n"
+        "const EFFORT_DENSITY = "      + json.dumps(monthly_density)                     + ";\n"
+        "const DENSITY_BUCKETS = "     + json.dumps([b[0] for b in _DBUCKETS])          + ";",
         encoding="utf-8",
     )
     tmpl = env.get_template("best-efforts.html")
@@ -4163,14 +4819,13 @@ def build_site():
     print(f"Generated achievements.html")
 
     # ── activities page
-    _TIER_ORDER = {"pr": 0, "milestone": 1, "hot": 2, "good": 3, "ok": 4, "muted": 5}
     activities_log = []
     for act in all_activities:
         entry = {k: act[k] for k in _ACT_LOG_FIELDS if k in act}
         aid = act["activity_id"]
         ns_sorted = sorted(
             all_notables.get(aid, []),
-            key=lambda n: _TIER_ORDER.get(n["tier"], 9),
+            key=lambda n: NOTABLE_TIER_ORDER.get(n["tier"], 9),
         )
         entry["notables"] = [
             {"icon": n["icon"], "tier": n["tier"],

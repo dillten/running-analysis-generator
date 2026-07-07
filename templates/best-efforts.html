@@ -100,6 +100,65 @@
 
   /* Pace heat coloring applied via JS */
 
+  /* Charts bottom section */
+  .charts-bottom { margin-top: 36px; display: flex; flex-direction: column; gap: 28px; }
+  .chart-block-hdr {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  .chart-block-wrap {
+    position: relative;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 12px 6px; overflow: hidden;
+  }
+  .density-scroll { overflow-x: auto; overflow-y: hidden; }
+
+  /* Distance vs Pace scatter chart */
+  .scatter-section { margin-bottom: 0; }
+  .scatter-header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px; flex-wrap: wrap; gap: 8px;
+  }
+  .scatter-header {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
+    color: var(--muted);
+  }
+  .scatter-controls { display: flex; gap: 4px; }
+  .scatter-mode-btn {
+    font-size: 11px; font-weight: 700; padding: 4px 12px;
+    border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg2); color: var(--muted2);
+    cursor: pointer; transition: all 0.12s;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .scatter-mode-btn:hover { color: var(--text); border-color: var(--muted); }
+  .scatter-mode-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(255,122,92,0.08); }
+  .scatter-wrap {
+    position: relative;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 12px 6px; overflow: hidden;
+  }
+  .scatter-canvas-wrap { position: relative; line-height: 0; }
+  #scatter-chart { display: block; width: 100%; cursor: default; }
+  #scatter-overlay { position: absolute; top: 0; left: 0; pointer-events: none; display: block; }
+  .scatter-legend {
+    display: flex; gap: 14px; flex-wrap: wrap; padding: 6px 4px 2px;
+    font-size: 10px; color: var(--muted2);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .scatter-legend span { display: flex; align-items: center; gap: 5px; }
+  .leg-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .scatter-tip {
+    position: absolute; display: none; pointer-events: none;
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
+    padding: 5px 10px; font-size: 11px; color: var(--text);
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+    white-space: nowrap; z-index: 10;
+  }
+  .scatter-tip a { color: var(--accent); text-decoration: none; }
+
   footer {
     margin-top: 36px; padding: 14px 24px;
     border-top: 1px solid var(--border); color: var(--muted); font-size: 10px;
@@ -142,6 +201,48 @@
     <tbody id="efforts-tbody"></tbody>
   </table>
 </div>
+
+<!-- ── Charts ─────────────────────────────────────────────────────────── -->
+<div class="charts-bottom">
+
+  <div class="scatter-section">
+    <div class="scatter-header-row">
+      <div class="scatter-header">Distance vs Pace — All Runs</div>
+      <div class="scatter-controls">
+        <button class="scatter-mode-btn active" id="btn-heat" onclick="setScatterMode('heat')">Heatmap</button>
+        <button class="scatter-mode-btn"        id="btn-dots" onclick="setScatterMode('dots')">Dots</button>
+      </div>
+    </div>
+    <div class="scatter-wrap" id="scatter-wrap">
+      <div class="scatter-canvas-wrap">
+        <canvas id="scatter-chart"></canvas>
+        <canvas id="scatter-overlay"></canvas>
+      </div>
+      <div class="scatter-legend" id="scatter-legend"></div>
+      <div class="scatter-tip" id="scatter-tip"></div>
+    </div>
+  </div>
+
+  <div class="chart-block">
+    <div class="chart-block-hdr">PR Progression</div>
+    <div class="chart-block-wrap" id="pr-wrap">
+      <canvas id="pr-chart"></canvas>
+      <div class="scatter-legend" id="pr-legend"></div>
+      <div class="scatter-tip" id="pr-tip"></div>
+    </div>
+  </div>
+
+  <div class="chart-block">
+    <div class="chart-block-hdr">Monthly Effort Distribution</div>
+    <div class="chart-block-wrap" id="density-outer">
+      <div class="density-scroll" id="density-scroll">
+        <canvas id="density-chart"></canvas>
+      </div>
+      <div class="scatter-tip" id="density-tip"></div>
+    </div>
+  </div>
+
+</div><!-- /charts-bottom -->
 
 </main>
 
@@ -329,6 +430,709 @@ function setSort(col) {
 buildDistBar();
 buildSummary(data[activeLabel] || []);
 buildTable(activeLabel);
+
+// ── Distance vs Pace scatter/heatmap chart ──────────────────────────────────
+
+const X_MARKS = [
+  { mi: 0.621,  label: '1K'  },
+  { mi: 1,      label: '1mi' },
+  { mi: 2,      label: '2mi' },
+  { mi: 3.107,  label: '5K'  },
+  { mi: 5,      label: '5mi' },
+  { mi: 6.214,  label: '10K' },
+  { mi: 9.321,  label: '15K' },
+  { mi: 13.109, label: 'HM'  },
+  { mi: 26.219, label: 'Mar' },
+  { mi: 31.069, label: '50K' },
+];
+
+const PACE_CEIL  = 780;   // 13:00/mi hard cap
+const MARG_TOP   = 52;    // px above main plot for distance distribution histogram
+const MARG_RIGHT = 62;    // px right of main plot for pace distribution histogram
+const BIN_X = 0.25;       // miles per heatmap / marginal bin
+const BIN_Y = 15;         // seconds per heatmap / marginal bin
+
+let scatterMode = 'heat';
+let scatterDots = [];
+let chartState  = null;   // set each draw; used by crosshair
+
+function setScatterMode(mode) {
+  scatterMode = mode;
+  document.getElementById('btn-heat').classList.toggle('active', mode === 'heat');
+  document.getElementById('btn-dots').classList.toggle('active', mode === 'dots');
+  drawScatter();
+}
+
+function themeColors() {
+  const dark = !isLightTheme();
+  return {
+    heat:       dark ? [255, 122, 92]  : [217, 95, 59],
+    gridMaj:    dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+    gridMin:    dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+    axisLbl:    dark ? 'rgba(155,142,196,0.9)'  : 'rgba(107,78,61,0.9)',
+    markLbl:    dark ? 'rgba(107,95,128,0.85)'  : 'rgba(138,106,90,0.85)',
+    dot30:      dark ? 'rgba(255,122,92,0.92)'  : 'rgba(217,95,59,0.92)',
+    dot90:      dark ? 'rgba(255,179,71,0.78)'  : 'rgba(201,138,26,0.78)',
+    dot365:     dark ? 'rgba(125,184,125,0.60)' : 'rgba(74,158,106,0.60)',
+    dotOld:     dark ? 'rgba(107,95,128,0.28)'  : 'rgba(138,106,90,0.28)',
+    race:       dark ? 'rgba(255,215,0,0.95)'   : 'rgba(200,155,0,0.95)',
+    raceBorder: dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.30)',
+    xhair:      dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.20)',
+    xhairLbl:   dark ? 'rgba(255,122,92,1.00)'  : 'rgba(217,95,59,1.00)',
+  };
+}
+
+function dotRecencyColor(dateStr, C) {
+  const days = (Date.now() - new Date(dateStr).getTime()) / 86400000;
+  if (days <= 30)  return C.dot30;
+  if (days <= 90)  return C.dot90;
+  if (days <= 365) return C.dot365;
+  return C.dotOld;
+}
+
+function buildLegend(C) {
+  const el = document.getElementById('scatter-legend');
+  if (!el) return;
+  const raceSwab = `<span class="leg-dot" style="background:rgba(255,215,0,0.9);outline:1px solid rgba(255,255,255,0.4);outline-offset:1px"></span>`;
+  if (scatterMode === 'heat') {
+    el.innerHTML =
+      `<span><span class="leg-dot" style="background:rgba(255,122,92,0.12)"></span>low</span>` +
+      `<span><span class="leg-dot" style="background:rgba(255,122,92,0.50)"></span>medium</span>` +
+      `<span><span class="leg-dot" style="background:rgba(255,122,92,0.88)"></span>high density</span>` +
+      `<span style="margin-left:6px">${raceSwab}race</span>`;
+  } else {
+    el.innerHTML =
+      `<span><span class="leg-dot" style="background:${C.dot30}"></span>last 30d</span>` +
+      `<span><span class="leg-dot" style="background:${C.dot90}"></span>30–90d</span>` +
+      `<span><span class="leg-dot" style="background:${C.dot365}"></span>90d–1yr</span>` +
+      `<span><span class="leg-dot" style="background:${C.dotOld}"></span>&gt;1yr</span>` +
+      `<span style="margin-left:6px">${raceSwab}race</span>`;
+  }
+}
+
+function drawScatter() {
+  const canvas = document.getElementById('scatter-chart');
+  const wrap   = document.getElementById('scatter-wrap');
+  if (!canvas || !RUNS_SCATTER || !RUNS_SCATTER.length) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const W   = wrap.clientWidth - 24;
+  const H   = Math.max(340, Math.min(520, Math.round(W * 0.42)));
+
+  for (const c of [canvas, document.getElementById('scatter-overlay')]) {
+    if (!c) continue;
+    c.width  = W * dpr;
+    c.height = H * dpr;
+    c.style.width  = W + 'px';
+    c.style.height = H + 'px';
+  }
+
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const PAD   = { top: 14 + MARG_TOP, right: 18 + MARG_RIGHT, bottom: 48, left: 56 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top  - PAD.bottom;
+
+  const C          = themeColors();
+  const [hr,hg,hb] = C.heat;
+
+  const pts     = RUNS_SCATTER.filter(p => p.spm <= PACE_CEIL);
+  const nonRace = pts.filter(p => !p.race);
+  const races   = pts.filter(p =>  p.race);
+
+  const xMin   = 0;
+  const xMax   = Math.max(26.5, Math.max(...pts.map(p => p.mi)) + 0.5);
+  const allSpm = pts.map(p => p.spm);
+  const yMin   = Math.max(180, Math.floor(Math.min(...allSpm) / 15) * 15 - 15);
+  const yMax   = PACE_CEIL;
+
+  const sx = mi  => PAD.left + (mi  - xMin) / (xMax - xMin) * plotW;
+  const sy = spm => PAD.top  + (spm - yMin) / (yMax - yMin) * plotH;
+
+  // ── 2-D density grid (always built; crosshair reads it in heat mode) ──
+  const nBX  = Math.ceil((xMax - xMin) / BIN_X);
+  const nBY  = Math.ceil((yMax - yMin) / BIN_Y);
+  const grid = new Int32Array(nBX * nBY);
+  for (const p of nonRace) {
+    const bx = Math.min(Math.floor((p.mi  - xMin) / BIN_X), nBX - 1);
+    const by = Math.min(Math.floor((p.spm - yMin) / BIN_Y), nBY - 1);
+    if (bx >= 0 && by >= 0) grid[by * nBX + bx]++;
+  }
+  const maxCount = Math.max(...grid, 1);
+
+  // ── Heatmap cells ──
+  if (scatterMode === 'heat') {
+    for (let bx = 0; bx < nBX; bx++) {
+      for (let by = 0; by < nBY; by++) {
+        const count = grid[by * nBX + bx];
+        if (!count) continue;
+        const t = Math.log(count + 1) / Math.log(maxCount + 1);
+        ctx.fillStyle = `rgba(${hr},${hg},${hb},${(0.06 + t * 0.82).toFixed(3)})`;
+        const px = sx(xMin + bx * BIN_X);
+        const py = sy(yMin + by * BIN_Y);
+        ctx.fillRect(px, py,
+          sx(xMin + (bx + 1) * BIN_X) - px + 0.5,
+          sy(yMin + (by + 1) * BIN_Y) - py + 0.5);
+      }
+    }
+  }
+
+  // ── Pace axis gridlines + labels ──
+  ctx.font = '10px "Atkinson Hyperlegible Mono", monospace';
+  ctx.textAlign = 'right';
+  for (let spm = yMin; spm <= yMax; spm += 15) {
+    const y     = sy(spm);
+    const isMaj = spm % 60 === 0;
+    ctx.strokeStyle = isMaj ? C.gridMaj : C.gridMin;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
+    if (isMaj) {
+      ctx.fillStyle = C.axisLbl;
+      ctx.fillText(`${Math.floor(spm / 60)}:00`, PAD.left - 5, y + 3.5);
+    }
+  }
+
+  // ── Distance axis gridlines + labels ──
+  ctx.font = '9px "Atkinson Hyperlegible Mono", monospace';
+  ctx.textAlign = 'center';
+  for (let mi = 1; mi <= xMax; mi++) {
+    ctx.strokeStyle = C.gridMin; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx(mi), PAD.top); ctx.lineTo(sx(mi), PAD.top + plotH); ctx.stroke();
+  }
+  for (const m of X_MARKS) {
+    if (m.mi > xMax) continue;
+    const x = sx(m.mi);
+    ctx.strokeStyle = C.gridMaj; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + plotH); ctx.stroke();
+    ctx.fillStyle = C.markLbl;
+    ctx.fillText(m.label, x, PAD.top + plotH + 13);
+  }
+
+  // Axis titles
+  ctx.fillStyle = C.axisLbl;
+  ctx.font = '9px "Atkinson Hyperlegible Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('distance (miles)', PAD.left + plotW / 2, PAD.top + plotH + 28);
+  ctx.save();
+  ctx.translate(11, PAD.top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('pace (min/mi)', 0, 0);
+  ctx.restore();
+
+  // ── X marginal histogram — distance distribution (top strip) ──
+  const margXCounts = new Int32Array(nBX);
+  for (const p of pts) {
+    const bx = Math.min(Math.floor((p.mi - xMin) / BIN_X), nBX - 1);
+    if (bx >= 0) margXCounts[bx]++;
+  }
+  const maxMargX  = Math.max(...margXCounts, 1);
+  const margXBase = PAD.top - 4;          // baseline (bottom of bars)
+  const margXH    = MARG_TOP - 10;        // max bar height
+  for (let bx = 0; bx < nBX; bx++) {
+    const count = margXCounts[bx];
+    if (!count) continue;
+    const t  = count / maxMargX;
+    const bh = Math.max(1, Math.round(t * margXH));
+    const px = sx(xMin + bx * BIN_X);
+    const pw = Math.max(1, sx(xMin + (bx + 1) * BIN_X) - px - 0.5);
+    ctx.fillStyle = `rgba(${hr},${hg},${hb},${(0.12 + t * 0.60).toFixed(3)})`;
+    ctx.fillRect(px, margXBase - bh, pw, bh);
+  }
+  // baseline rule
+  ctx.strokeStyle = C.gridMin; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(PAD.left, margXBase); ctx.lineTo(PAD.left + plotW, margXBase); ctx.stroke();
+
+  // ── Y marginal histogram — pace distribution (right strip) ──
+  const margYCounts = new Int32Array(nBY);
+  for (const p of pts) {
+    const by = Math.min(Math.floor((p.spm - yMin) / BIN_Y), nBY - 1);
+    if (by >= 0) margYCounts[by]++;
+  }
+  const maxMargY  = Math.max(...margYCounts, 1);
+  const margYBase = PAD.left + plotW + 3;  // baseline (left edge of bars)
+  const margYW    = MARG_RIGHT - 8;        // max bar width
+  for (let by = 0; by < nBY; by++) {
+    const count = margYCounts[by];
+    if (!count) continue;
+    const t  = count / maxMargY;
+    const bw = Math.max(1, Math.round(t * margYW));
+    const py = sy(yMin + by * BIN_Y);
+    const ph = Math.max(1, sy(yMin + (by + 1) * BIN_Y) - py - 0.5);
+    ctx.fillStyle = `rgba(${hr},${hg},${hb},${(0.12 + t * 0.60).toFixed(3)})`;
+    ctx.fillRect(margYBase, py, bw, ph);
+  }
+  // baseline rule
+  ctx.strokeStyle = C.gridMin; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(margYBase, PAD.top); ctx.lineTo(margYBase, PAD.top + plotH); ctx.stroke();
+
+  // ── Dots ──
+  scatterDots = [];
+  if (scatterMode === 'dots') {
+    for (const p of [...nonRace].sort((a, b) => a.date < b.date ? -1 : 1)) {
+      const cx = sx(p.mi), cy = sy(p.spm);
+      ctx.fillStyle = dotRecencyColor(p.date, C);
+      ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
+      scatterDots.push({ x: cx, y: cy, mi: p.mi, spm: p.spm, date: p.date, id: p.id, race: false });
+    }
+  }
+  // Races always on top
+  for (const p of [...races].sort((a, b) => a.date < b.date ? -1 : 1)) {
+    const cx = sx(p.mi), cy = sy(p.spm);
+    ctx.fillStyle = C.race;
+    ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = C.raceBorder; ctx.lineWidth = 1; ctx.stroke();
+    scatterDots.push({ x: cx, y: cy, mi: p.mi, spm: p.spm, date: p.date, id: p.id, race: true });
+  }
+
+  // Plot border
+  ctx.strokeStyle = C.gridMaj; ctx.lineWidth = 1;
+  ctx.strokeRect(PAD.left, PAD.top, plotW, plotH);
+
+  // Save state for crosshair
+  chartState = { W, H, PAD, xMin, xMax, yMin, yMax, plotW, plotH, grid, nBX, nBY };
+  buildLegend(C);
+}
+
+// ── Crosshair on overlay canvas ───────────────────────────────────────────────
+function drawCrosshair(mx, my) {
+  const ovl = document.getElementById('scatter-overlay');
+  if (!ovl || !chartState) return;
+  const { W, H, PAD, xMin, xMax, yMin, yMax, plotW, plotH, grid, nBX, nBY } = chartState;
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = ovl.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  // Only draw crosshair when inside the main plot area
+  if (mx < PAD.left || mx > PAD.left + plotW || my < PAD.top || my > PAD.top + plotH) return;
+
+  const C   = themeColors();
+  const mi  = xMin + (mx - PAD.left) / plotW * (xMax - xMin);
+  const spm = yMin + (my - PAD.top)  / plotH * (yMax - yMin);
+  const mn  = Math.floor(spm / 60);
+  const sc  = String(Math.round(spm % 60)).padStart(2, '0');
+
+  // Crosshair lines
+  ctx.strokeStyle = C.xhair;
+  ctx.lineWidth   = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(mx, PAD.top);  ctx.lineTo(mx, PAD.top + plotH);  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PAD.left, my); ctx.lineTo(PAD.left + plotW, my); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Axis value callouts (rendered in accent colour, bold)
+  ctx.font      = 'bold 10px "Atkinson Hyperlegible Mono", monospace';
+  ctx.fillStyle = C.xhairLbl;
+  ctx.textAlign = 'center';
+  ctx.fillText(mi.toFixed(2) + ' mi', mx, PAD.top + plotH + 13);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${mn}:${sc}`, PAD.left - 5, my + 3.5);
+
+  // Cell count badge (heatmap mode only)
+  if (scatterMode === 'heat') {
+    const bx    = Math.min(Math.floor((mi  - xMin) / BIN_X), nBX - 1);
+    const by    = Math.min(Math.floor((spm - yMin) / BIN_Y), nBY - 1);
+    const count = (bx >= 0 && by >= 0) ? grid[by * nBX + bx] : 0;
+    if (count > 0) {
+      ctx.font      = '10px "Atkinson Hyperlegible Mono", monospace';
+      ctx.fillStyle = C.axisLbl;
+      ctx.textAlign = 'left';
+      ctx.fillText(`${count} run${count !== 1 ? 's' : ''} in zone`, PAD.left + 6, PAD.top + 14);
+    }
+  }
+}
+
+// ── Interaction (tooltip + crosshair + click) ────────────────────────────────
+(function () {
+  const canvas = document.getElementById('scatter-chart');
+  const wrap   = document.getElementById('scatter-wrap');
+  const tip    = document.getElementById('scatter-tip');
+  if (!canvas || !tip) return;
+
+  canvas.addEventListener('mousemove', e => {
+    const canvRect = canvas.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    const mx = e.clientX - canvRect.left;
+    const my = e.clientY - canvRect.top;
+
+    drawCrosshair(mx, my);
+
+    let best = null, bestD = 10;
+    for (const d of scatterDots) {
+      const dist = Math.hypot(d.x - mx, d.y - my);
+      if (dist < bestD) { bestD = dist; best = d; }
+    }
+    if (best) {
+      const mn  = Math.floor(best.spm / 60);
+      const sc  = String(Math.round(best.spm % 60)).padStart(2, '0');
+      const tag = best.race ? ' 🏅' : '';
+      tip.style.display = 'block';
+      tip.innerHTML = `<a href="activity/${best.id}.html">${best.date}${tag} &mdash; ${best.mi.toFixed(1)} mi @ ${mn}:${sc}/mi</a>`;
+      const offX  = canvRect.left - wrapRect.left;
+      const offY  = canvRect.top  - wrapRect.top;
+      const tipW  = tip.offsetWidth;
+      const leftX = offX + best.x + 14;
+      tip.style.left = (leftX + tipW > wrapRect.width ? offX + best.x - tipW - 8 : leftX) + 'px';
+      tip.style.top  = (offY + Math.max(0, best.y - 14)) + 'px';
+      canvas.style.cursor = 'pointer';
+    } else {
+      tip.style.display   = 'none';
+      canvas.style.cursor = 'crosshair';
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    const ovl = document.getElementById('scatter-overlay');
+    if (ovl) { const ctx = ovl.getContext('2d'); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,ovl.width,ovl.height); }
+    tip.style.display   = 'none';
+    canvas.style.cursor = 'default';
+  });
+
+  canvas.addEventListener('click', e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    let best = null, bestD = 10;
+    for (const d of scatterDots) {
+      const dist = Math.hypot(d.x - mx, d.y - my);
+      if (dist < bestD) { bestD = dist; best = d; }
+    }
+    if (best) window.location.href = `activity/${best.id}.html`;
+  });
+})();
+
+drawScatter();
+window.addEventListener('resize', drawScatter);
+
+// ── PR Progression chart ─────────────────────────────────────────────────────
+
+const PR_COLORS = {
+  '1 mile':        '#60a5fa',
+  '5K':            '#ff7a5c',
+  '10K':           '#10b981',
+  'Half Marathon': '#f59e0b',
+  'Marathon':      '#c084fc',
+};
+const PR_SHORT = {
+  '1 mile': '1mi', '5K': '5K', '10K': '10K',
+  'Half Marathon': 'HM', 'Marathon': 'Mar',
+};
+
+let prDots = [];
+
+function drawPRChart() {
+  const canvas = document.getElementById('pr-chart');
+  const wrap   = document.getElementById('pr-wrap');
+  if (!canvas || !PR_PROG) return;
+
+  const allPts = Object.values(PR_PROG).flat();
+  if (!allPts.length) return;
+
+  const dark    = !isLightTheme();
+  const gridMaj = dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)';
+  const gridMin = dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)';
+  const axisLbl = dark ? 'rgba(155,142,196,0.9)'  : 'rgba(107,78,61,0.9)';
+  const dotRing = dark ? 'rgba(12,10,26,0.7)'     : 'rgba(255,249,245,0.7)';
+
+  const dpr = window.devicePixelRatio || 1;
+  const W   = wrap.clientWidth - 24;
+  const H   = Math.max(240, Math.min(340, Math.round(W * 0.28)));
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const PAD   = { top: 16, right: 20, bottom: 44, left: 56 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top  - PAD.bottom;
+
+  const today = new Date();
+  const tsMin = Math.min(...allPts.map(p => new Date(p.date).getTime()));
+  const tsMax = today.getTime();
+  const allSpm = allPts.map(p => p.spm);
+  const yMin  = Math.max(180, Math.floor(Math.min(...allSpm) / 15) * 15 - 30);
+  const yMax  = Math.ceil(Math.max(...allSpm) / 15) * 15 + 30;
+
+  const sx = ts  => PAD.left + (ts  - tsMin) / (tsMax - tsMin) * plotW;
+  const sy = spm => PAD.top  + (spm - yMin)  / (yMax  - yMin)  * plotH;
+
+  // Pace gridlines
+  ctx.font = '10px "Atkinson Hyperlegible Mono", monospace';
+  ctx.textAlign = 'right';
+  for (let spm = yMin; spm <= yMax; spm += 15) {
+    const y = sy(spm), isMaj = spm % 60 === 0;
+    ctx.strokeStyle = isMaj ? gridMaj : gridMin;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
+    if (isMaj) {
+      ctx.fillStyle = axisLbl;
+      ctx.fillText(`${Math.floor(spm / 60)}:00`, PAD.left - 5, y + 3.5);
+    }
+  }
+
+  // Year gridlines + labels
+  ctx.font = '9px "Atkinson Hyperlegible Mono", monospace';
+  ctx.textAlign = 'center';
+  const startYr = new Date(tsMin).getFullYear();
+  const endYr   = new Date(tsMax).getFullYear() + 1;
+  for (let yr = startYr; yr <= endYr; yr++) {
+    const ts = new Date(yr, 0, 1).getTime();
+    if (ts < tsMin || ts > tsMax + 1) continue;
+    const x = sx(ts);
+    ctx.strokeStyle = gridMaj; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + plotH); ctx.stroke();
+    ctx.fillStyle = axisLbl;
+    ctx.fillText(yr, x, PAD.top + plotH + 14);
+  }
+
+  // Axis titles
+  ctx.fillStyle = axisLbl;
+  ctx.font = '9px "Atkinson Hyperlegible Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('date', PAD.left + plotW / 2, PAD.top + plotH + 28);
+  ctx.save();
+  ctx.translate(11, PAD.top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('pace (min/mi)', 0, 0);
+  ctx.restore();
+
+  // Step lines + dots
+  prDots = [];
+  for (const [lbl, pts] of Object.entries(PR_PROG)) {
+    if (!pts.length) continue;
+    const color = PR_COLORS[lbl] || '#888';
+
+    // Fill area under step line
+    ctx.beginPath();
+    ctx.moveTo(sx(new Date(pts[0].date).getTime()), PAD.top + plotH);
+    ctx.lineTo(sx(new Date(pts[0].date).getTime()), sy(pts[0].spm));
+    for (let i = 1; i < pts.length; i++) {
+      const x = sx(new Date(pts[i].date).getTime());
+      ctx.lineTo(x, sy(pts[i - 1].spm));
+      ctx.lineTo(x, sy(pts[i].spm));
+    }
+    ctx.lineTo(sx(tsMax), sy(pts[pts.length - 1].spm));
+    ctx.lineTo(sx(tsMax), PAD.top + plotH);
+    ctx.closePath();
+    ctx.fillStyle = color + '18';
+    ctx.fill();
+
+    // Step line
+    ctx.beginPath();
+    ctx.strokeStyle = color + 'cc';
+    ctx.lineWidth   = 2;
+    ctx.moveTo(sx(new Date(pts[0].date).getTime()), sy(pts[0].spm));
+    for (let i = 1; i < pts.length; i++) {
+      const x = sx(new Date(pts[i].date).getTime());
+      ctx.lineTo(x, sy(pts[i - 1].spm));
+      ctx.lineTo(x, sy(pts[i].spm));
+    }
+    ctx.lineTo(sx(tsMax), sy(pts[pts.length - 1].spm));
+    ctx.stroke();
+
+    // PR dots
+    for (const p of pts) {
+      const x = sx(new Date(p.date).getTime()), y = sy(p.spm);
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = dotRing; ctx.lineWidth = 1.5; ctx.stroke();
+      prDots.push({ x, y, lbl, pace: p.pace, date: p.date, id: p.id, time: p.time });
+    }
+  }
+
+  // Border
+  ctx.strokeStyle = gridMaj; ctx.lineWidth = 1;
+  ctx.strokeRect(PAD.left, PAD.top, plotW, plotH);
+
+  // Legend
+  const leg = document.getElementById('pr-legend');
+  if (leg) {
+    leg.innerHTML = Object.entries(PR_SHORT)
+      .filter(([lbl]) => PR_PROG[lbl])
+      .map(([lbl, short]) =>
+        `<span><span class="leg-dot" style="background:${PR_COLORS[lbl]}"></span>${short}</span>`)
+      .join('');
+  }
+}
+
+// PR tooltip
+(function () {
+  const canvas = document.getElementById('pr-chart');
+  const wrap   = document.getElementById('pr-wrap');
+  const tip    = document.getElementById('pr-tip');
+  if (!canvas || !tip) return;
+
+  canvas.addEventListener('mousemove', e => {
+    const canvRect = canvas.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    const mx = e.clientX - canvRect.left, my = e.clientY - canvRect.top;
+    let best = null, bestD = 12;
+    for (const d of prDots) {
+      const dist = Math.hypot(d.x - mx, d.y - my);
+      if (dist < bestD) { bestD = dist; best = d; }
+    }
+    if (best) {
+      tip.style.display = 'block';
+      tip.innerHTML = `<a href="activity/${best.id}.html">${best.date} &mdash; ${PR_SHORT[best.lbl]} ${best.time} (${best.pace}/mi)</a>`;
+      const offX = canvRect.left - wrapRect.left, offY = canvRect.top - wrapRect.top;
+      const tipW = tip.offsetWidth;
+      const lx   = offX + best.x + 14;
+      tip.style.left = (lx + tipW > wrapRect.width ? offX + best.x - tipW - 8 : lx) + 'px';
+      tip.style.top  = (offY + Math.max(0, best.y - 14)) + 'px';
+      canvas.style.cursor = 'pointer';
+    } else {
+      tip.style.display = 'none'; canvas.style.cursor = 'default';
+    }
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  canvas.addEventListener('click', e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    let best = null, bestD = 12;
+    for (const d of prDots) {
+      const dist = Math.hypot(d.x - mx, d.y - my);
+      if (dist < bestD) { bestD = dist; best = d; }
+    }
+    if (best) window.location.href = `activity/${best.id}.html`;
+  });
+})();
+
+drawPRChart();
+window.addEventListener('resize', drawPRChart);
+
+// ── Monthly Effort Density chart ─────────────────────────────────────────────
+
+let densityState = null;
+
+function drawDensityChart() {
+  const canvas = document.getElementById('density-chart');
+  if (!canvas || !EFFORT_DENSITY || !DENSITY_BUCKETS) return;
+
+  const dark    = !isLightTheme();
+  const [ar,ag,ab] = dark ? [255,122,92] : [217,95,59];
+  const axisLbl = dark ? 'rgba(155,142,196,0.9)'  : 'rgba(107,78,61,0.9)';
+  const gridCol = dark ? 'rgba(255,255,255,0.08)'  : 'rgba(0,0,0,0.08)';
+  const emptyCol = dark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)';
+
+  const months = Object.keys(EFFORT_DENSITY).sort();
+  if (!months.length) return;
+
+  const CELL_W = 14, CELL_H = 28;
+  const PAD    = { top: 12, right: 16, bottom: 34, left: 90 };
+  const W      = PAD.left + months.length * CELL_W + PAD.right;
+  const H      = PAD.top  + DENSITY_BUCKETS.length * CELL_H + PAD.bottom;
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Max count for log scale
+  const allCounts = Object.values(EFFORT_DENSITY).flatMap(r => Object.values(r));
+  const maxCount  = Math.max(...allCounts, 1);
+
+  // Cells
+  months.forEach((mo, mi) => {
+    const row = EFFORT_DENSITY[mo] || {};
+    DENSITY_BUCKETS.forEach((bucket, bi) => {
+      const count = row[bucket] || 0;
+      const cx = PAD.left + mi * CELL_W;
+      const cy = PAD.top  + bi * CELL_H;
+      if (count > 0) {
+        const t = Math.log(count + 1) / Math.log(maxCount + 1);
+        ctx.fillStyle = `rgba(${ar},${ag},${ab},${(0.06 + t * 0.82).toFixed(3)})`;
+      } else {
+        ctx.fillStyle = emptyCol;
+      }
+      ctx.fillRect(cx + 0.5, cy + 0.5, CELL_W - 1, CELL_H - 1);
+    });
+  });
+
+  // Y axis — bucket labels
+  ctx.font = '10px "Atkinson Hyperlegible", sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = axisLbl;
+  DENSITY_BUCKETS.forEach((bucket, bi) => {
+    ctx.fillText(bucket, PAD.left - 8, PAD.top + bi * CELL_H + CELL_H / 2 + 3.5);
+  });
+
+  // Horizontal bucket dividers
+  ctx.strokeStyle = gridCol; ctx.lineWidth = 1;
+  for (let bi = 1; bi < DENSITY_BUCKETS.length; bi++) {
+    const y = PAD.top + bi * CELL_H;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + months.length * CELL_W, y); ctx.stroke();
+  }
+
+  // X axis — year markers + labels
+  ctx.font = '9px "Atkinson Hyperlegible Mono", monospace';
+  ctx.textAlign = 'left';
+  let prevYr = '';
+  months.forEach((mo, mi) => {
+    const yr = mo.slice(0, 4);
+    if (yr !== prevYr) {
+      prevYr = yr;
+      const cx = PAD.left + mi * CELL_W;
+      ctx.strokeStyle = gridCol; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, PAD.top);
+      ctx.lineTo(cx, PAD.top + DENSITY_BUCKETS.length * CELL_H);
+      ctx.stroke();
+      ctx.fillStyle = axisLbl;
+      ctx.fillText(yr, cx + 2, PAD.top + DENSITY_BUCKETS.length * CELL_H + 16);
+    }
+  });
+
+  // Outer border
+  ctx.strokeStyle = gridCol; ctx.lineWidth = 1;
+  ctx.strokeRect(PAD.left, PAD.top, months.length * CELL_W, DENSITY_BUCKETS.length * CELL_H);
+
+  densityState = { months, CELL_W, CELL_H, PAD };
+}
+
+// Density tooltip
+(function () {
+  const canvas = document.getElementById('density-chart');
+  const outer  = document.getElementById('density-outer');
+  const scroll = document.getElementById('density-scroll');
+  const tip    = document.getElementById('density-tip');
+  if (!canvas || !tip) return;
+
+  canvas.addEventListener('mousemove', e => {
+    if (!densityState) return;
+    const { months, CELL_W, CELL_H, PAD } = densityState;
+    const rect = canvas.getBoundingClientRect();
+    // Account for the scroll offset
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const mi = Math.floor((mx - PAD.left) / CELL_W);
+    const bi = Math.floor((my - PAD.top)  / CELL_H);
+    if (mi < 0 || mi >= months.length || bi < 0 || bi >= DENSITY_BUCKETS.length) {
+      tip.style.display = 'none'; return;
+    }
+    const mo    = months[mi];
+    const bucket = DENSITY_BUCKETS[bi];
+    const count = (EFFORT_DENSITY[mo] && EFFORT_DENSITY[mo][bucket]) || 0;
+    tip.style.display = 'block';
+    tip.innerHTML = `${mo} &middot; ${bucket} &middot; ${count} run${count !== 1 ? 's' : ''}`;
+    // Position relative to outer (which is position:relative)
+    const outerRect = outer.getBoundingClientRect();
+    const lx = e.clientX - outerRect.left + 14;
+    const tipW = tip.offsetWidth;
+    tip.style.left = (lx + tipW > outerRect.width ? e.clientX - outerRect.left - tipW - 8 : lx) + 'px';
+    tip.style.top  = (e.clientY - outerRect.top - 28) + 'px';
+  });
+
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+})();
+
+drawDensityChart();
+
+onThemeChange(() => { drawScatter(); drawPRChart(); drawDensityChart(); });
 </script>
 </body>
 </html>
