@@ -27,7 +27,7 @@ AI_CALORIE_STRATA_CACHE_PATH = Path(__file__).parent / "ai-calorie-strata-cache.
 AI_RECENT_CACHE_PATH      = Path(__file__).parent / "ai-recent-cache.json"
 ACTIVITIES_MANIFEST_PATH  = Path(__file__).parent / "dist" / "activities-manifest.json"
 BEST_EFFORTS_CACHE_PATH   = Path(__file__).parent / "best-efforts-cache.json"
-ACTIVITIES_MANIFEST_VERSION = "layout-v12"  # bump when activity.html template changes
+ACTIVITIES_MANIFEST_VERSION = "layout-v13"  # bump when activity.html template changes
 
 # Notable/badge tier sort order: broadest achievement window first, fun
 # "special" tags last (used when capping how many badges a list view shows).
@@ -80,6 +80,11 @@ RACE_DISTANCE_LABELS = {
     (45.0, 60.0): "50K",
     (60.0, 9999): "Ultra",
 }
+
+# Lap classification for run/walk/stopped-interval detection (see fetch_lap_splits)
+WALK_PACE_THRESHOLD_SEC_PER_MI = 780   # moving pace slower than 13:00/mi counts as a walk lap
+STOPPED_MIN_LAP_DIST_M         = 15    # laps shorter than this are basically a stop, not a split
+STOPPED_TIME_THRESHOLD_S       = 10    # only flag a pause if elapsed-vs-timer gap is at least this
 
 # Best-split target distances in metres, with display labels
 SPLIT_TARGETS = [
@@ -4028,6 +4033,7 @@ def build_activity_pages(
                     int(aid), act.get("date", ""), all_effort_splits, activities
                 )
         lap_splits = fetch_lap_splits(cursor, int(aid))
+        moving_stats = compute_moving_time_stats(lap_splits)
 
         # Mark best/worst mile for row highlighting
         if mile_splits:
@@ -4051,6 +4057,7 @@ def build_activity_pages(
             chart_series_json=json.dumps(chart_series),
             mile_splits=mile_splits,
             lap_splits=lap_splits,
+            moving_stats=moving_stats,
             activity_splits=activity_splits,
             split_ranks=split_ranks,
             prev_id=prev_id,
@@ -4091,6 +4098,7 @@ def fetch_lap_splits(cursor: sqlite3.Cursor, activity_id: int) -> list[dict]:
             lap_idx,
             MAX(CASE WHEN name = 'total_distance'   THEN value END) as dist_m,
             MAX(CASE WHEN name = 'total_timer_time'  THEN value END) as timer_s,
+            MAX(CASE WHEN name = 'total_elapsed_time' THEN value END) as elapsed_s,
             MAX(CASE WHEN name = 'avg_heart_rate'    THEN value END) as avg_hr,
             MAX(CASE WHEN name = 'max_heart_rate'    THEN value END) as max_hr,
             MAX(CASE WHEN name = 'avg_running_cadence' THEN value END) as cadence,
@@ -4113,7 +4121,7 @@ def fetch_lap_splits(cursor: sqlite3.Cursor, activity_id: int) -> list[dict]:
     avg_sec_per_mi = (total_time / total_dist * 1609.344) if total_dist > 0 else None
 
     laps = []
-    for idx, (lap_idx, dist_m, timer_s, avg_hr, max_hr, cadence, ascent_m, descent_m) in enumerate(rows, 1):
+    for idx, (lap_idx, dist_m, timer_s, elapsed_s, avg_hr, max_hr, cadence, ascent_m, descent_m) in enumerate(rows, 1):
         if not dist_m or not timer_s:
             continue
         sec_per_mi = timer_s / dist_m * 1609.344
@@ -4126,21 +4134,68 @@ def fetch_lap_splits(cursor: sqlite3.Cursor, activity_id: int) -> list[dict]:
         if avg_sec_per_mi:
             delta = round(sec_per_mi - avg_sec_per_mi, 1)
 
+        stopped_s = round(max(0.0, (elapsed_s or timer_s) - timer_s), 1)
+        if dist_m < STOPPED_MIN_LAP_DIST_M:
+            interval_type = "stopped"
+        elif sec_per_mi >= WALK_PACE_THRESHOLD_SEC_PER_MI:
+            interval_type = "walk"
+        else:
+            interval_type = "run"
+
         laps.append({
-            "lap":        idx,
-            "dist_mi":    round(dist_mi, 2),
-            "dist_m":     round(dist_m, 0),
-            "timer_s":    round(timer_s, 1),
-            "pace_fmt":   pace_fmt,
-            "sec_per_mi": round(sec_per_mi, 1),
-            "delta_s":    delta,
-            "avg_hr":     int(avg_hr) if avg_hr else None,
-            "max_hr":     int(max_hr) if max_hr else None,
-            "cadence":    int(cadence * 2) if cadence else None,  # strides→steps per min
-            "ascent_ft":  round(ascent_m * 3.28084) if ascent_m else None,
-            "descent_ft": round(descent_m * 3.28084) if descent_m else None,
+            "lap":            idx,
+            "dist_mi":        round(dist_mi, 2),
+            "dist_m":         round(dist_m, 0),
+            "timer_s":        round(timer_s, 1),
+            "elapsed_s":      round(elapsed_s, 1) if elapsed_s else round(timer_s, 1),
+            "stopped_s":      stopped_s if stopped_s >= STOPPED_TIME_THRESHOLD_S else 0,
+            "interval_type":  interval_type,
+            "pace_fmt":       pace_fmt,
+            "sec_per_mi":     round(sec_per_mi, 1),
+            "delta_s":        delta,
+            "avg_hr":         int(avg_hr) if avg_hr else None,
+            "max_hr":         int(max_hr) if max_hr else None,
+            "cadence":        int(cadence * 2) if cadence else None,  # strides→steps per min
+            "ascent_ft":      round(ascent_m * 3.28084) if ascent_m else None,
+            "descent_ft":     round(descent_m * 3.28084) if descent_m else None,
         })
     return laps
+
+
+def compute_moving_time_stats(laps: list[dict]) -> dict | None:
+    """Compare moving-time pace (excludes paused/stopped seconds) against
+    total elapsed-time pace, and tally run/walk/stopped distance from laps.
+    Returns None when there's nothing meaningful to show (e.g. no pauses
+    and no walk breaks)."""
+    if not laps:
+        return None
+
+    total_dist_m    = sum(l["dist_m"] for l in laps)
+    total_timer_s   = sum(l["timer_s"] for l in laps)
+    total_elapsed_s = sum(l["elapsed_s"] for l in laps)
+    stopped_s       = round(max(0.0, total_elapsed_s - total_timer_s), 1)
+
+    run_dist_mi  = round(sum(l["dist_mi"] for l in laps if l["interval_type"] == "run"), 2)
+    walk_dist_mi = round(sum(l["dist_mi"] for l in laps if l["interval_type"] == "walk"), 2)
+    has_walk     = walk_dist_mi > 0
+    has_stop     = stopped_s >= STOPPED_TIME_THRESHOLD_S
+
+    if not has_walk and not has_stop:
+        return None
+
+    moving_sec_per_mi = (total_timer_s / total_dist_m * 1609.344) if total_dist_m else None
+    total_sec_per_mi  = (total_elapsed_s / total_dist_m * 1609.344) if total_dist_m else None
+
+    return {
+        "moving_pace_fmt": fmt_pace_from_sec_per_mi(moving_sec_per_mi) if moving_sec_per_mi else "-",
+        "total_pace_fmt":  fmt_pace_from_sec_per_mi(total_sec_per_mi) if total_sec_per_mi else "-",
+        "stopped_s":       stopped_s,
+        "stopped_fmt":     fmt_duration(stopped_s) if has_stop else None,
+        "run_dist_mi":     run_dist_mi,
+        "walk_dist_mi":    walk_dist_mi,
+        "has_walk":        has_walk,
+        "has_stop":        has_stop,
+    }
 
 
 def compute_activity_insights(

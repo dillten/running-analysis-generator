@@ -56,6 +56,18 @@
     font-size: 9px; color: var(--accent); border: 1px solid rgba(0,212,255,0.4);
     padding: 2px 7px; border-radius: 3px; font-family: 'Atkinson Hyperlegible Mono', monospace;
   }
+  .lap-type-badge {
+    font-size: 8px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600;
+    padding: 1px 5px; border-radius: 3px; border: 1px solid; white-space: nowrap;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .lap-type-badge.run     { color: var(--accent3); border-color: rgba(16,185,129,0.4); }
+  .lap-type-badge.walk    { color: var(--accent4); border-color: rgba(245,158,11,0.4); }
+  .lap-type-badge.stopped { color: var(--accent5); border-color: rgba(248,113,113,0.4); }
+  .lap-stopped-note {
+    font-size: 9px; opacity: 0.6; display: block;
+    font-family: 'Atkinson Hyperlegible Mono', monospace; color: var(--accent5);
+  }
 
   /* Hero stats: big three */
   .hero-stats {
@@ -382,6 +394,24 @@
       <span class="sec-label">VO₂ Max</span>
     </div>
     {% endif %}
+    {% if moving_stats %}
+    <div class="sec-stat">
+      <span class="sec-num c-green">{{ moving_stats.moving_pace_fmt }}</span>
+      <span class="sec-label">Moving Pace</span>
+    </div>
+    {% if moving_stats.has_stop %}
+    <div class="sec-stat">
+      <span class="sec-num c-red">{{ moving_stats.stopped_fmt }}</span>
+      <span class="sec-label">Stopped Time</span>
+    </div>
+    {% endif %}
+    {% if moving_stats.has_walk %}
+    <div class="sec-stat">
+      <span class="sec-num">{{ moving_stats.walk_dist_mi }} <small style="font-size:13px;font-weight:400">mi</small></span>
+      <span class="sec-label">Walk Distance</span>
+    </div>
+    {% endif %}
+    {% endif %}
   </div>
   {% if calorie_healthy or calorie_unhealthy %}
   <div class="calorie-eq">
@@ -482,6 +512,7 @@
         <thead>
           <tr>
             <th>Lap</th>
+            <th>Type</th>
             <th>Dist</th>
             <th>Time</th>
             <th>Pace</th>
@@ -495,6 +526,7 @@
           {% set d = lap.delta_s %}
           <tr>
             <td class="dim">{{ lap.lap }}</td>
+            <td><span class="lap-type-badge {{ lap.interval_type }}">{{ lap.interval_type }}</span></td>
             <td class="dim">
               {% if lap.dist_mi >= 0.9 and lap.dist_mi <= 1.1 %}
                 1 mi
@@ -504,7 +536,12 @@
                 {{ "%.2f" | format(lap.dist_mi) }} mi
               {% endif %}
             </td>
-            <td class="dim">{{ lap.timer_s | fmt_duration }}</td>
+            <td class="dim">
+              {{ lap.timer_s | fmt_duration }}
+              {% if lap.stopped_s %}
+              <small class="lap-stopped-note">+{{ lap.stopped_s | fmt_duration }} stopped</small>
+              {% endif %}
+            </td>
             <td class="{% if d is not none %}{% if d < -5 %}fast{% elif d > 5 %}slow{% else %}avg{% endif %}{% endif %}">
               {{ lap.pace_fmt }}
               {% if d is not none %}
