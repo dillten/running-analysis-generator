@@ -7,6 +7,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../style.css">
+{% if route %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+{% endif %}
 <style>
   /* ── Breadcrumb ── */
   .breadcrumb {
@@ -179,6 +183,23 @@
   .legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
   .legend-line { width: 18px; height: 2px; border-radius: 1px; flex-shrink: 0; }
   #activity-chart { width: 100%; height: 220px; display: block; cursor: crosshair; }
+  #dynamics-chart { width: 100%; height: 180px; display: block; cursor: crosshair; }
+
+  /* ── Route map ── */
+  .map-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden;
+  }
+  .map-card .chart-title { padding: 14px 16px 0; margin-bottom: 8px; }
+  #activity-map { width: 100%; height: 280px; background: #060d14; }
+  html[data-theme="light"] #activity-map { background: #d8e8f0; }
+  .leaflet-container { background: inherit; }
+  .leaflet-popup-content-wrapper {
+    background: var(--bg2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px;
+    font-family: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  }
+  .leaflet-popup-tip { background: var(--bg2); }
 
   /* ── Mile splits ── */
   .table-card {
@@ -315,6 +336,7 @@
   <a href="../sleep.html">Sleep</a>
   <a href="../body.html">Body</a>
   <a href="../recent.html">Recent</a>
+  <a href="../segments.html">Segments</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 
@@ -448,6 +470,13 @@
   <!-- ── Left: charts + splits ── -->
   <div class="col-main">
 
+    {% if route %}
+    <div class="map-card">
+      <div class="chart-title">Route</div>
+      <div id="activity-map"></div>
+    </div>
+    {% endif %}
+
     {% if chart_series %}
     <div class="chart-card">
       <div class="chart-title">Pace &amp; Heart Rate by 0.1-Mile Interval</div>
@@ -458,6 +487,17 @@
         <div class="legend-item"><div class="legend-line" style="background:#fb923c"></div> HR</div>
       </div>
       <canvas id="activity-chart"></canvas>
+    </div>
+    {% endif %}
+
+    {% if dynamics_series %}
+    <div class="chart-card">
+      <div class="chart-title">Running Dynamics by 0.1-Mile Interval</div>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-line" style="background:#60a5fa"></div> Cadence (spm)</div>
+        <div class="legend-item"><div class="legend-line" style="background:#a78bfa"></div> Vertical Oscillation (mm)</div>
+      </div>
+      <canvas id="dynamics-chart"></canvas>
     </div>
     {% endif %}
 
@@ -628,6 +668,22 @@
         </div>
         {% endfor %}
       </div>
+    </div>
+    {% endif %}
+
+    {% if route_memberships %}
+    <div class="side-card">
+      <div class="side-title">Segments in This Run</div>
+      {% for rm in route_memberships %}
+      <div class="side-row">
+        <span class="side-key">
+          <a href="../segments.html#{{ rm.segment_id }}" style="color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted2);">{{ rm.segment_name }}</a>
+        </span>
+        <span class="side-val {% if rm.is_pr %}cv-green{% else %}cv-muted{% endif %}">
+          #{{ rm.place }} of {{ rm.support }}{% if rm.is_pr %} &middot; PR{% endif %}
+        </span>
+      </div>
+      {% endfor %}
     </div>
     {% endif %}
 
@@ -1005,6 +1061,198 @@ onThemeChange(() => drawChart(canvas));
 function init() { drawChart(canvas); }
 init();
 window.addEventListener('resize', () => drawChart(canvas));
+</script>
+{% endif %}
+
+{% if route %}
+<script>
+(function () {
+  const ROUTE = {{ route_json | safe }};
+  if (!ROUTE.length) return;
+
+  const map = L.map('activity-map', { zoomControl: true, attributionControl: false });
+
+  const TILE_DARK  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  const tileAttrib = '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
+  let tileLayer = L.tileLayer(
+    isLightTheme() ? TILE_LIGHT : TILE_DARK,
+    { attribution: tileAttrib, subdomains: 'abcd', maxZoom: 19 }
+  ).addTo(map);
+
+  onThemeChange(() => {
+    map.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(isLightTheme() ? TILE_LIGHT : TILE_DARK, {
+      attribution: tileAttrib, subdomains: 'abcd', maxZoom: 19,
+    }).addTo(map);
+  });
+
+  const line = L.polyline(ROUTE, { color: '#00d4ff', weight: 3, opacity: 0.85 }).addTo(map);
+  map.fitBounds(line.getBounds(), { padding: [16, 16] });
+
+  L.circleMarker(ROUTE[0], {
+    radius: 6, fillColor: '#10b981', color: '#10b981', weight: 2, fillOpacity: 0.9,
+  }).bindPopup('Start').addTo(map);
+  L.circleMarker(ROUTE[ROUTE.length - 1], {
+    radius: 6, fillColor: '#f87171', color: '#f87171', weight: 2, fillOpacity: 0.9,
+  }).bindPopup('Finish').addTo(map);
+})();
+</script>
+{% endif %}
+
+{% if dynamics_series %}
+<script>
+(function () {
+  const dynData = {{ dynamics_series_json | safe }};
+  const dPAD = { top: 14, right: 52, bottom: 36, left: 46 };
+  let dHoverIdx = null;
+
+  const cadPts = dynData.filter(d => d.cadence !== null);
+  const voPts  = dynData.filter(d => d.vert_osc !== null);
+  const hasCad = cadPts.length > 0;
+  const hasVo  = voPts.length > 0;
+
+  const cadMin = hasCad ? Math.min(...cadPts.map(d => d.cadence)) : 0;
+  const cadMax = hasCad ? Math.max(...cadPts.map(d => d.cadence)) : 200;
+  const cadSpan = (cadMax - cadMin) || 1;
+  const cScaleMin = cadMin - cadSpan * 0.15;
+  const cScaleMax = cadMax + cadSpan * 0.15;
+
+  const voMin = hasVo ? Math.min(...voPts.map(d => d.vert_osc)) : 0;
+  const voMax = hasVo ? Math.max(...voPts.map(d => d.vert_osc)) : 100;
+  const voSpan = (voMax - voMin) || 1;
+  const vScaleMin = voMin - voSpan * 0.15;
+  const vScaleMax = voMax + voSpan * 0.15;
+
+  function dThemeColors() {
+    const light = isLightTheme();
+    return {
+      grid:     light ? 'rgba(0,0,0,0.08)'   : 'rgba(255,255,255,0.07)',
+      mileGrid: light ? 'rgba(0,0,0,0.05)'   : 'rgba(255,255,255,0.04)',
+      label:    light ? '#888880'            : '#64748b',
+      voLabel:  light ? 'rgba(120,80,200,0.75)' : 'rgba(167,139,250,0.7)',
+      tooltipBg:  light ? 'rgba(255,255,255,0.96)' : 'rgba(10,14,26,0.92)',
+      tooltipBdr: light ? 'rgba(0,0,0,0.12)'       : 'rgba(255,255,255,0.12)',
+      tooltipMeta: light ? '#73726c' : '#94a3b8',
+      crosshair: light ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.25)',
+    };
+  }
+
+  function drawDynamicsChart(canvas) {
+    if (!canvas || !dynData.length) return;
+    const tc = dThemeColors();
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.getBoundingClientRect().width || 800;
+    const H = 180;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+
+    const cw = W - dPAD.left - dPAD.right;
+    const ch = H - dPAD.top - dPAD.bottom;
+    const n = dynData.length;
+
+    const toXc = i => dPAD.left + (i + 0.5) / n * cw;
+    const toYc = v => dPAD.top + (cScaleMax - v) / (cScaleMax - cScaleMin) * ch;
+    const toYv = v => dPAD.top + (vScaleMax - v) / (vScaleMax - vScaleMin) * ch;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = '9px "Atkinson Hyperlegible Mono", monospace';
+
+    if (hasCad) {
+      const step = cadSpan > 40 ? 20 : cadSpan > 15 ? 10 : 5;
+      const start = Math.ceil(cScaleMin / step) * step;
+      for (let v = start; v <= cScaleMax; v += step) {
+        const y = toYc(v);
+        if (y < dPAD.top || y > dPAD.top + ch) continue;
+        ctx.strokeStyle = tc.grid; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(dPAD.left, y); ctx.lineTo(dPAD.left + cw, y); ctx.stroke();
+        ctx.fillStyle = tc.label; ctx.textAlign = 'right';
+        ctx.fillText(v, dPAD.left - 4, y + 3);
+      }
+    }
+    if (hasVo) {
+      const step = voSpan > 40 ? 20 : voSpan > 15 ? 10 : 5;
+      const start = Math.ceil(vScaleMin / step) * step;
+      for (let v = start; v <= vScaleMax; v += step) {
+        const y = toYv(v);
+        if (y < dPAD.top || y > dPAD.top + ch) continue;
+        ctx.fillStyle = tc.voLabel; ctx.textAlign = 'left';
+        ctx.fillText(v, dPAD.left + cw + 4, y + 3);
+      }
+    }
+
+    const maxMi = dynData[n - 1].x;
+    const mStep = maxMi > 20 ? 5 : maxMi > 10 ? 2 : 1;
+    ctx.textAlign = 'center'; ctx.fillStyle = tc.label;
+    for (let m = 1; m <= Math.floor(maxMi); m++) {
+      const x = dPAD.left + (m / maxMi) * cw;
+      ctx.strokeStyle = tc.mileGrid; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, dPAD.top); ctx.lineTo(x, dPAD.top + ch); ctx.stroke();
+      if (m % mStep === 0) ctx.fillText(m, x, dPAD.top + ch + 14);
+    }
+
+    if (dHoverIdx !== null) {
+      const hx = toXc(dHoverIdx);
+      ctx.strokeStyle = tc.crosshair; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(hx, dPAD.top); ctx.lineTo(hx, dPAD.top + ch); ctx.stroke();
+    }
+
+    function drawLine(field, toY, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      let started = false;
+      dynData.forEach((d, i) => {
+        if (d[field] === null) { started = false; return; }
+        const x = toXc(i), y = toY(d[field]);
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    if (hasCad) drawLine('cadence', toYc, '#60a5fa');
+    if (hasVo)  drawLine('vert_osc', toYv, '#a78bfa');
+
+    if (dHoverIdx !== null) {
+      const d = dynData[dHoverIdx];
+      const x = toXc(dHoverIdx);
+      const lines = [`Mile ${d.x}`];
+      if (d.cadence !== null) lines.push(`${d.cadence} spm`);
+      if (d.vert_osc !== null) lines.push(`${d.vert_osc} mm VO`);
+
+      ctx.font = '11px "Atkinson Hyperlegible", sans-serif';
+      const maxW = Math.max(...lines.map(l => ctx.measureText(l).width));
+      const boxW = maxW + 18, boxH = lines.length * 16 + 10;
+      let tx = x + 10;
+      if (tx + boxW > W - dPAD.right) tx = x - boxW - 8;
+      const ty = dPAD.top + 10;
+
+      ctx.fillStyle = tc.tooltipBg;
+      ctx.beginPath(); ctx.roundRect(tx, ty, boxW, boxH, 5); ctx.fill();
+      ctx.strokeStyle = tc.tooltipBdr; ctx.lineWidth = 1; ctx.stroke();
+
+      lines.forEach((line, li) => {
+        ctx.fillStyle = li === 0 ? tc.tooltipMeta : li === 1 && hasCad ? '#60a5fa' : '#a78bfa';
+        ctx.textAlign = 'left';
+        ctx.fillText(line, tx + 9, ty + 16 + li * 16);
+      });
+    }
+  }
+
+  const dCanvas = document.getElementById('dynamics-chart');
+  dCanvas.addEventListener('mousemove', e => {
+    const rect = dCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const cw_ = rect.width - dPAD.left - dPAD.right;
+    const idx = Math.floor((mx - dPAD.left) / cw_ * dynData.length);
+    const newIdx = Math.max(0, Math.min(dynData.length - 1, idx));
+    if (newIdx !== dHoverIdx) { dHoverIdx = newIdx; drawDynamicsChart(dCanvas); }
+  });
+  dCanvas.addEventListener('mouseleave', () => { dHoverIdx = null; drawDynamicsChart(dCanvas); });
+  onThemeChange(() => drawDynamicsChart(dCanvas));
+  drawDynamicsChart(dCanvas);
+  window.addEventListener('resize', () => drawDynamicsChart(dCanvas));
+})();
 </script>
 {% endif %}
 

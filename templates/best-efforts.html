@@ -11,6 +11,21 @@
 <style>
   main { padding: 20px 28px; max-width: 1200px; }
 
+  /* Watch time / moving time selector */
+  .time-mode-bar {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+  }
+  .tm-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+  .tm-btn {
+    font-size: 12px; font-weight: 700; padding: 5px 14px;
+    border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg2); color: var(--muted2);
+    cursor: pointer; transition: all 0.12s;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .tm-btn:hover { color: var(--text); border-color: var(--muted); }
+  .tm-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+
   /* Distance selector */
   .dist-bar {
     display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 20px;
@@ -188,11 +203,17 @@
   <a href="sleep.html">Sleep</a>
   <a href="body.html">Body</a>
   <a href="recent.html">Recent</a>
+  <a href="segments.html">Segments</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 
 <main>
 
+<div class="time-mode-bar" id="time-mode-bar">
+  <span class="tm-label">Time basis</span>
+  <button class="tm-btn active" id="tm-recorded" onclick="setTimeMode('recorded')">Watch Time</button>
+  <button class="tm-btn" id="tm-moving" onclick="setTimeMode('moving')">Moving Time</button>
+</div>
 <div class="dist-bar" id="dist-bar"></div>
 <div class="summary-bar" id="summary-bar"></div>
 <div class="table-wrap">
@@ -251,8 +272,14 @@
 </footer>
 
 <script>
-const data   = BEST_EFFORTS_DATA;
 const labels = BEST_EFFORTS_LABELS;
+
+let timeMode = 'recorded';
+try { timeMode = localStorage.getItem('garminTimeMode') || 'recorded'; } catch (e) {}
+
+function currentEfforts() { return BEST_EFFORTS_DATA[timeMode] || {}; }
+function currentScatter() { return RUNS_SCATTER[timeMode] || []; }
+function currentPrProg()  { return PR_PROG[timeMode] || {}; }
 
 let activeLabel = labels.find(l => l === '5K') || labels[0];
 let sortCol  = 'sec_per_mi';
@@ -287,6 +314,7 @@ function recencyClass(dateStr) {
 
 function buildDistBar() {
   const bar = document.getElementById('dist-bar');
+  const data = currentEfforts();
   bar.innerHTML = labels.map(lbl => {
     const count = (data[lbl] || []).length;
     return `<button class="dist-btn${lbl === activeLabel ? ' active' : ''}"
@@ -332,7 +360,7 @@ function sortedEfforts(efforts) {
 }
 
 function buildTable(label) {
-  const raw = data[label] || [];
+  const raw = currentEfforts()[label] || [];
   const efforts = sortedEfforts(raw);
 
   // Pace range for color scale (use original sorted-by-pace order)
@@ -413,7 +441,7 @@ function selectDist(label) {
   sortCol = 'sec_per_mi';
   sortDir = 'asc';
   buildDistBar();
-  buildSummary(data[label] || []);
+  buildSummary(currentEfforts()[label] || []);
   buildTable(label);
 }
 
@@ -427,8 +455,25 @@ function setSort(col) {
   buildTable(activeLabel);
 }
 
+function setTimeMode(mode) {
+  if (mode === timeMode) return;
+  timeMode = mode;
+  try { localStorage.setItem('garminTimeMode', mode); } catch (e) {}
+  const btnRecorded = document.getElementById('tm-recorded');
+  const btnMoving    = document.getElementById('tm-moving');
+  if (btnRecorded) btnRecorded.classList.toggle('active', mode === 'recorded');
+  if (btnMoving)    btnMoving.classList.toggle('active', mode === 'moving');
+  buildDistBar();
+  buildSummary(currentEfforts()[activeLabel] || []);
+  buildTable(activeLabel);
+  drawScatter();
+  drawPRChart();
+}
+
+document.getElementById('tm-recorded').classList.toggle('active', timeMode === 'recorded');
+document.getElementById('tm-moving').classList.toggle('active', timeMode === 'moving');
 buildDistBar();
-buildSummary(data[activeLabel] || []);
+buildSummary(currentEfforts()[activeLabel] || []);
 buildTable(activeLabel);
 
 // ── Distance vs Pace scatter/heatmap chart ──────────────────────────────────
@@ -513,7 +558,8 @@ function buildLegend(C) {
 function drawScatter() {
   const canvas = document.getElementById('scatter-chart');
   const wrap   = document.getElementById('scatter-wrap');
-  if (!canvas || !RUNS_SCATTER || !RUNS_SCATTER.length) return;
+  const runsScatter = currentScatter();
+  if (!canvas || !runsScatter || !runsScatter.length) return;
 
   const dpr = window.devicePixelRatio || 1;
   const W   = wrap.clientWidth - 24;
@@ -537,7 +583,7 @@ function drawScatter() {
   const C          = themeColors();
   const [hr,hg,hb] = C.heat;
 
-  const pts     = RUNS_SCATTER.filter(p => p.spm <= PACE_CEIL);
+  const pts     = runsScatter.filter(p => p.spm <= PACE_CEIL);
   const nonRace = pts.filter(p => !p.race);
   const races   = pts.filter(p =>  p.race);
 
@@ -823,9 +869,10 @@ let prDots = [];
 function drawPRChart() {
   const canvas = document.getElementById('pr-chart');
   const wrap   = document.getElementById('pr-wrap');
-  if (!canvas || !PR_PROG) return;
+  const prProg = currentPrProg();
+  if (!canvas || !prProg) return;
 
-  const allPts = Object.values(PR_PROG).flat();
+  const allPts = Object.values(prProg).flat();
   if (!allPts.length) return;
 
   const dark    = !isLightTheme();
@@ -900,7 +947,7 @@ function drawPRChart() {
 
   // Step lines + dots
   prDots = [];
-  for (const [lbl, pts] of Object.entries(PR_PROG)) {
+  for (const [lbl, pts] of Object.entries(prProg)) {
     if (!pts.length) continue;
     const color = PR_COLORS[lbl] || '#888';
 
@@ -950,7 +997,7 @@ function drawPRChart() {
   const leg = document.getElementById('pr-legend');
   if (leg) {
     leg.innerHTML = Object.entries(PR_SHORT)
-      .filter(([lbl]) => PR_PROG[lbl])
+      .filter(([lbl]) => prProg[lbl])
       .map(([lbl, short]) =>
         `<span><span class="leg-dot" style="background:${PR_COLORS[lbl]}"></span>${short}</span>`)
       .join('');

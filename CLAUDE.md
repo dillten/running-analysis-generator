@@ -42,7 +42,7 @@ Six cache files sit at the project root (all gitignored):
 
 | File | Key | Invalidated by |
 |---|---|---|
-| `best-efforts-cache.json` | `activity_id → {update_ts, splits}` | DB `update_ts` change; delete to force full recompute |
+| `best-efforts-cache.json` | `activity_id → {update_ts, splits}`, `splits = {recorded: [...], moving: [...]}` | DB `update_ts` change; old-format (flat-list) entries auto-invalidate; delete to force full recompute |
 | `ai-analysis-cache.json` | `{race_count, cache_version}` | Bump `cache_version` string in `generate_ai_analysis()` |
 | `ai-race-analysis-cache.json` | `activity_id` | Delete entry or whole file |
 | `ai-calorie-cache.json` | `activity_id` | Delete file |
@@ -69,7 +69,9 @@ Per-activity HTML pages are tracked in `dist/activities-manifest.json` keyed by 
 
 ## Best-Effort Split Algorithm
 
-`best_splits_for_activity()` uses a two-pointer sliding window over the distance timeseries to find the fastest contiguous segment of each `SPLIT_TARGET` length. Elapsed time comes from actual timestamp differences (not index deltas) so sparse older recordings work. A pace sanity check of 180–1800 sec/mi (3:00–30:00/mi) filters corrupt GPS teleport data. The same sanity check must be applied at consumption sites (`compute_best_efforts_by_distance`, `compute_achievements`, `compute_notables`).
+`best_splits_for_activity()` uses a two-pointer sliding window (`_best_window_for_target()`) over the distance timeseries to find the fastest contiguous segment of each `SPLIT_TARGET` length. It returns `{"recorded": [...], "moving": [...]}`: the same window search run once against raw timestamp deltas (recorded/watch time) and once against `_moving_elapsed_series()`, which zeroes out the time delta between samples whenever implied speed drops below `MOVING_SPEED_THRESHOLD_MPS` (stopped at a crossing, aid station, etc.). Elapsed time comes from actual timestamp differences (not index deltas) so sparse older recordings work. A pace sanity check of 180–1800 sec/mi (3:00–30:00/mi) filters corrupt GPS teleport data. The same sanity check must be applied at consumption sites (`compute_best_efforts_by_distance`, `compute_achievements`, `compute_notables`).
+
+`build_site()` keeps two views of `fetch_all_best_efforts()`'s output: `all_effort_splits_full` (the `{recorded, moving}` dict, used only by `compute_best_efforts_by_distance()` and `compute_achievements()` for the Best Efforts / Achievements pages' watch-time/moving-time toggle) and `all_effort_splits` (the `"recorded"` slice only, in the original flat-list shape, passed to every other consumer — notables, predictor, activity pages, AI race analyses — so their behavior is unchanged). `fetch_all_activities_list()` similarly adds `moving_duration_fmt`/`average_speed_moving`/`pace_mile_moving`/`pace_km_moving` per activity (falling back to the recorded value when `moving_duration` is unpopulated), consumed only by the achievements moving-time mode.
 
 ## Notables System
 

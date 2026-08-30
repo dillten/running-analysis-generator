@@ -13,6 +13,21 @@
 
   .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 12px; padding-left: 2px; }
 
+  /* Watch time / moving time selector */
+  .time-mode-bar {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 20px;
+  }
+  .tm-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+  .tm-btn {
+    font-size: 12px; font-weight: 700; padding: 5px 14px;
+    border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg2); color: var(--muted2);
+    cursor: pointer; transition: all 0.12s;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .tm-btn:hover { color: var(--text); border-color: var(--muted); }
+  .tm-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+
   /* ── Summary strip ── */
   .summary-strip { display: flex; gap: 1px; margin-bottom: 28px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--border); }
   .ss-box { background: var(--bg2); flex: 1; padding: 12px 16px; min-width: 80px; }
@@ -131,10 +146,17 @@
   <a href="sleep.html">Sleep</a>
   <a href="body.html">Body</a>
   <a href="recent.html">Recent</a>
+  <a href="segments.html">Segments</a>
   <button class="theme-toggle" onclick="toggleTheme()">Light</button>
 </div>
 
 <main>
+
+<div class="time-mode-bar" id="time-mode-bar">
+  <span class="tm-label">Time basis</span>
+  <button class="tm-btn active" id="tm-recorded" onclick="setTimeMode('recorded')">Watch Time</button>
+  <button class="tm-btn" id="tm-moving" onclick="setTimeMode('moving')">Moving Time</button>
+</div>
 
 <div id="summary-strip" class="summary-strip"></div>
 
@@ -167,7 +189,27 @@
 </footer>
 
 <script>
-const A = ACHIEVEMENTS;
+let timeMode = 'recorded';
+try { timeMode = localStorage.getItem('garminTimeMode') || 'recorded'; } catch (e) {}
+let A = ACHIEVEMENTS[timeMode] || ACHIEVEMENTS.recorded;
+
+function rebuildAll() {
+  buildSummary();
+  buildSpeedGrid();
+  buildVolumeRecords();
+  buildSingleRunRecords();
+  buildMilestones();
+}
+
+function setTimeMode(mode) {
+  if (mode === timeMode) return;
+  timeMode = mode;
+  try { localStorage.setItem('garminTimeMode', mode); } catch (e) {}
+  A = ACHIEVEMENTS[timeMode] || ACHIEVEMENTS.recorded;
+  document.getElementById('tm-recorded').classList.toggle('active', mode === 'recorded');
+  document.getElementById('tm-moving').classList.toggle('active', mode === 'moving');
+  rebuildAll();
+}
 
 // ── Summary strip ───────────────────────────────────────────────
 function buildSummary() {
@@ -293,11 +335,9 @@ function buildMilestones() {
   document.getElementById('milestones-list').innerHTML = html || '<div style="padding:16px;color:var(--muted)">No milestones found</div>';
 }
 
-buildSummary();
-buildSpeedGrid();
-buildVolumeRecords();
-buildSingleRunRecords();
-buildMilestones();
+document.getElementById('tm-recorded').classList.toggle('active', timeMode === 'recorded');
+document.getElementById('tm-moving').classList.toggle('active', timeMode === 'moving');
+rebuildAll();
 </script>
 </body>
 </html>
