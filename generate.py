@@ -5,10 +5,12 @@ import math
 import re
 import sqlite3
 import bisect
+import hashlib
 import json
+import time
 import urllib.request
 import urllib.error
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
@@ -27,7 +29,9 @@ AI_CALORIE_STRATA_CACHE_PATH = Path(__file__).parent / "ai-calorie-strata-cache.
 AI_RECENT_CACHE_PATH      = Path(__file__).parent / "ai-recent-cache.json"
 ACTIVITIES_MANIFEST_PATH  = Path(__file__).parent / "dist" / "activities-manifest.json"
 BEST_EFFORTS_CACHE_PATH   = Path(__file__).parent / "best-efforts-cache.json"
-ACTIVITIES_MANIFEST_VERSION = "layout-v13"  # bump when activity.html template changes
+SEGMENTS_CACHE_PATH       = Path(__file__).parent / "segments-cache.json"
+GEOCODE_CACHE_PATH        = Path(__file__).parent / "geocode-cache.json"
+ACTIVITIES_MANIFEST_VERSION = "layout-v14"  # bump when activity.html template changes
 
 # Notable/badge tier sort order: broadest achievement window first, fun
 # "special" tags last (used when capping how many badges a list view shows).
@@ -87,6 +91,11 @@ STOPPED_MIN_LAP_DIST_M         = 15    # laps shorter than this are basically a 
 STOPPED_TIME_THRESHOLD_S       = 10    # only flag a pause if elapsed-vs-timer gap is at least this
 
 # Best-split target distances in metres, with display labels
+# Instantaneous speed below which a distance-timeseries sample is treated as
+# "stopped" (e.g. waiting at a crossing) rather than genuinely moving, when
+# computing moving-time best-effort splits. ~1.1 mph — well under a walk.
+MOVING_SPEED_THRESHOLD_MPS = 0.5
+
 SPLIT_TARGETS = [
     (1_000,     "1K"),
     (1_609.344, "1 mile"),
@@ -270,62 +279,104 @@ def load_distance_series(
 # Best splits (sliding window over TS data)
 # ─────────────────────────────────────────────
 
+def _moving_elapsed_series(times: list[float], dists: list[float]) -> list[float]:
+    """
+    Cumulative moving-only elapsed seconds, parallel to `times`. The time delta
+    between two consecutive samples is excluded whenever the implied instantaneous
+    speed falls below MOVING_SPEED_THRESHOLD_MPS (stopped at a crossing, aid
+    station, etc.), so it never counts toward a "moving time" split window.
+    """
+    if not times:
+        return []
+    moving = [0.0] * len(times)
+    for i in range(1, len(times)):
+        dt = times[i] - times[i - 1]
+        if dt <= 0:
+            moving[i] = moving[i - 1]
+            continue
+        speed = (dists[i] - dists[i - 1]) / dt
+        moving[i] = moving[i - 1] + (dt if speed >= MOVING_SPEED_THRESHOLD_MPS else 0.0)
+    return moving
+
+
+def _best_window_for_target(
+    dists: list[float], elapsed: list[float], target_m: float
+) -> tuple[float | None, int, int]:
+    """
+    Two-pointer search over `dists` (monotonic cumulative metres) for the
+    contiguous window covering >= target_m whose `elapsed` delta is smallest.
+    `elapsed` may be raw clock time or a moving-time-only series — the window
+    selection (driven purely by distance) is unaffected either way.
+    """
+    n = len(dists)
+    best_s = None
+    best_lo = 0
+    best_right = 0
+    left = 0
+    for right in range(n):
+        while left < right and dists[right] - dists[left] > target_m:
+            left += 1
+        lo = left - 1 if left > 0 else 0
+        if dists[right] - dists[lo] >= target_m:
+            e = elapsed[right] - elapsed[lo]   # actual seconds, not index delta
+            if best_s is None or e < best_s:
+                best_s = e
+                best_lo = lo
+                best_right = right
+    return best_s, best_lo, best_right
+
+
 def best_splits_for_activity(
     cursor: sqlite3.Cursor, activity_id: int, race_dist_m: float
-) -> list[dict]:
+) -> dict[str, list[dict]]:
+    """
+    Returns {"recorded": [...], "moving": [...]} — best splits at each
+    SPLIT_TARGETS distance, computed once using raw recorded (watch) time and
+    once excluding detected stopped time (moving time only).
+    """
     times, dists = load_distance_series(cursor, activity_id)
     if not dists:
-        return []
+        return {"recorded": [], "moving": []}
 
     n = len(dists)
-    results = []
+    moving_times = _moving_elapsed_series(times, dists)
 
-    for target_m, label in SPLIT_TARGETS:
-        if race_dist_m < target_m * 0.98:
-            continue
-
-        best_s = None
-        best_lo = 0
-        best_right = 0
-        left = 0
-        for right in range(n):
-            while left < right and dists[right] - dists[left] > target_m:
-                left += 1
-            lo = left - 1 if left > 0 else 0
-            if dists[right] - dists[lo] >= target_m:
-                elapsed = times[right] - times[lo]   # actual seconds, not index delta
-                if best_s is None or elapsed < best_s:
-                    best_s = elapsed
-                    best_lo = lo
-                    best_right = right
-
-        # Fallback: GPS series can fall a few metres short of the nominal distance
-        # (e.g. 49 995 m for a 50K). If we're within 0.1% of the target, the full
-        # series time is a valid split.
-        if best_s is None and dists[-1] >= target_m * 0.999:
-            best_s = times[-1] - times[0]
-            best_lo = 0
-            best_right = n - 1
-
-        if best_s is not None:
-            # Sanity: reject anything outside 3:00/mi–30:00/mi (catches corrupt GPS teleports)
-            sec_per_mi = best_s / target_m * 1609.344
-            if not (180 <= sec_per_mi <= 1800):
+    def _compute(elapsed: list[float]) -> list[dict]:
+        results = []
+        for target_m, label in SPLIT_TARGETS:
+            if race_dist_m < target_m * 0.98:
                 continue
-            pace_km, pace_mile = pace_from_seconds_meters(best_s, target_m)
-            results.append({
-                "label":        label,
-                "target_m":     target_m,
-                "elapsed_s":    best_s,
-                "duration_fmt": fmt_duration(best_s),
-                "pace_km":      pace_km,
-                "pace_mile":    pace_mile,
-                "sec_per_mi":   round(best_s / target_m * 1609.344, 1),
-                "start_mi":     round(dists[best_lo] / 1609.344, 2),
-                "end_mi":       round(dists[best_right] / 1609.344, 2),
-            })
 
-    return results
+            best_s, best_lo, best_right = _best_window_for_target(dists, elapsed, target_m)
+
+            # Fallback: GPS series can fall a few metres short of the nominal distance
+            # (e.g. 49 995 m for a 50K). If we're within 0.1% of the target, the full
+            # series time is a valid split.
+            if best_s is None and dists[-1] >= target_m * 0.999:
+                best_s = elapsed[-1] - elapsed[0]
+                best_lo = 0
+                best_right = n - 1
+
+            if best_s is not None:
+                # Sanity: reject anything outside 3:00/mi–30:00/mi (catches corrupt GPS teleports)
+                sec_per_mi = best_s / target_m * 1609.344
+                if not (180 <= sec_per_mi <= 1800):
+                    continue
+                pace_km, pace_mile = pace_from_seconds_meters(best_s, target_m)
+                results.append({
+                    "label":        label,
+                    "target_m":     target_m,
+                    "elapsed_s":    best_s,
+                    "duration_fmt": fmt_duration(best_s),
+                    "pace_km":      pace_km,
+                    "pace_mile":    pace_mile,
+                    "sec_per_mi":   round(sec_per_mi, 1),
+                    "start_mi":     round(dists[best_lo] / 1609.344, 2),
+                    "end_mi":       round(dists[best_right] / 1609.344, 2),
+                })
+        return results
+
+    return {"recorded": _compute(times), "moving": _compute(moving_times)}
 
 
 def fetch_all_best_splits(conn: sqlite3.Connection, races: list[dict]) -> dict[int, list[dict]]:
@@ -336,7 +387,7 @@ def fetch_all_best_splits(conn: sqlite3.Connection, races: list[dict]) -> dict[i
         aid = race["activity_id"]
         dist_m = race["distance"] or 0
         print(f"  [{i}/{total}] {race['activity_name'][:50]}", end="", flush=True)
-        splits = best_splits_for_activity(cursor, aid, dist_m)
+        splits = best_splits_for_activity(cursor, aid, dist_m)["recorded"]
         result[aid] = splits
         print(f" -> {len(splits)} splits")
     return result
@@ -388,6 +439,130 @@ def fetch_pace_series(
     return result
 
 
+def _distance_boundaries(
+    times: list[float], dists: list[float], interval_mi: float
+) -> list[tuple[float, float, float]]:
+    """Pre-compute (dist_mi, dist_m, elapsed_sec) at each interval-mile boundary."""
+    total_mi = dists[-1] / 1609.344
+    boundaries: list[tuple[float, float, float]] = []
+    d_mi = 0.0
+    while d_mi <= total_mi + interval_mi / 4:
+        d_m = min(d_mi * 1609.344, dists[-1])
+        idx = bisect.bisect_left(dists, d_m)
+        if idx == 0:
+            t = times[0]
+        elif idx >= len(dists):
+            t = times[-1]
+        else:
+            d0, d1 = dists[idx - 1], dists[idx]
+            t0_, t1_ = times[idx - 1], times[idx]
+            frac = (d_m - d0) / (d1 - d0) if d1 > d0 else 0.0
+            t = t0_ + frac * (t1_ - t0_)
+        boundaries.append((round(d_mi, 10), d_m, t))
+        d_mi = round(d_mi + interval_mi, 10)
+    return boundaries
+
+
+def _semicircle_to_deg(v: float) -> float:
+    return v * (180.0 / 2**31)
+
+
+def fetch_activity_route(
+    cursor: sqlite3.Cursor, activity_id: int, max_points: int = 500
+) -> list[list[float]]:
+    """
+    Return a downsampled [[lat, lon], ...] GPS route for the activity, in degrees.
+    Raw position_lat/position_long are stored as semicircles.
+    """
+    t0_dt = _get_t0(cursor, activity_id)
+    if t0_dt is None:
+        return []
+
+    lat_times, lat_vals = _load_named_series(cursor, activity_id, "position_lat", t0_dt)
+    lon_times, lon_vals = _load_named_series(cursor, activity_id, "position_long", t0_dt)
+    if not lat_times or not lon_times:
+        return []
+
+    points: list[list[float]] = []
+    for t, lat_raw in zip(lat_times, lat_vals):
+        lon_raw = _interp(lon_times, lon_vals, t)
+        if lon_raw is None or lat_raw == 0 or lon_raw == 0:
+            continue
+        lat = _semicircle_to_deg(lat_raw)
+        lon = _semicircle_to_deg(lon_raw)
+        if abs(lat) < 0.5 and abs(lon) < 0.5:
+            continue
+        points.append([round(lat, 5), round(lon, 5)])
+
+    if len(points) > max_points:
+        stride = len(points) / max_points
+        points = [points[int(i * stride)] for i in range(max_points)]
+
+    return points
+
+
+def fetch_dynamics_series(
+    cursor: sqlite3.Cursor, activity_id: int, interval_mi: float = 0.1
+) -> list[dict]:
+    """
+    Return 0.1-mile interval running-dynamics data (where a dynamics pod recorded it):
+    [{x: dist_mi, cadence: spm_or_null, vert_osc: mm_or_null}, ...]
+    """
+    t0_dt = _get_t0(cursor, activity_id)
+    if t0_dt is None:
+        return []
+
+    times, dists = load_distance_series(cursor, activity_id)
+    if not dists:
+        return []
+
+    run_cad_times, run_cad_vals = _load_named_series(cursor, activity_id, "run_cadence", t0_dt)
+    cad_times, cad_vals = ([], [])
+    cad_scale = 1.0
+    if run_cad_times and any(v > 0 for v in run_cad_vals):
+        cad_times, cad_vals = run_cad_times, run_cad_vals
+    else:
+        cad_times, cad_vals = _load_named_series(cursor, activity_id, "cadence", t0_dt)
+        cad_scale = 2.0  # raw 'cadence' is per-leg steps/min
+
+    vo_times, vo_vals = _load_named_series(cursor, activity_id, "vertical_oscillation", t0_dt)
+
+    has_cad = any(v > 0 for v in cad_vals)
+    has_vo  = any(v > 0 for v in vo_vals)
+    if not has_cad and not has_vo:
+        return []
+
+    boundaries = _distance_boundaries(times, dists, interval_mi)
+
+    result = []
+    for i in range(1, len(boundaries)):
+        _, _, prev_t = boundaries[i - 1]
+        curr_d_mi, _, curr_t = boundaries[i]
+
+        cadence = None
+        if has_cad:
+            lo = bisect.bisect_left(cad_times, prev_t)
+            hi = bisect.bisect_right(cad_times, curr_t)
+            readings = [v for v in cad_vals[lo:hi] if v > 0]
+            if readings:
+                cadence = round(sum(readings) / len(readings) * cad_scale)
+
+        vert_osc = None
+        if has_vo:
+            lo = bisect.bisect_left(vo_times, prev_t)
+            hi = bisect.bisect_right(vo_times, curr_t)
+            readings = [v for v in vo_vals[lo:hi] if v > 0]
+            if readings:
+                vert_osc = round(sum(readings) / len(readings), 1)
+
+        if cadence is None and vert_osc is None:
+            continue
+
+        result.append({"x": round(curr_d_mi, 2), "cadence": cadence, "vert_osc": vert_osc})
+
+    return result
+
+
 def fetch_activity_chart_series(
     cursor: sqlite3.Cursor,
     activity_id: int,
@@ -407,25 +582,7 @@ def fetch_activity_chart_series(
 
     hr_times, hr_vals = _load_named_series(cursor, activity_id, "heart_rate", t0_dt)
 
-    total_mi = dists[-1] / 1609.344
-
-    # Pre-compute (dist_mi, dist_m, elapsed_sec) at each 0.1-mile boundary
-    boundaries: list[tuple[float, float, float]] = []
-    d_mi = 0.0
-    while d_mi <= total_mi + interval_mi / 4:
-        d_m = min(d_mi * 1609.344, dists[-1])
-        idx = bisect.bisect_left(dists, d_m)
-        if idx == 0:
-            t = times[0]
-        elif idx >= len(dists):
-            t = times[-1]
-        else:
-            d0, d1 = dists[idx - 1], dists[idx]
-            t0_, t1_ = times[idx - 1], times[idx]
-            frac = (d_m - d0) / (d1 - d0) if d1 > d0 else 0.0
-            t = t0_ + frac * (t1_ - t0_)
-        boundaries.append((round(d_mi, 10), d_m, t))
-        d_mi = round(d_mi + interval_mi, 10)
+    boundaries = _distance_boundaries(times, dists, interval_mi)
 
     result = []
     for i in range(1, len(boundaries)):
@@ -2499,17 +2656,20 @@ Be direct and specific. Reference actual numbers from the data. Keep it practica
 
 def fetch_all_best_efforts(
     conn: sqlite3.Connection, activities: list[dict]
-) -> dict[int, list[dict]]:
+) -> dict[int, dict[str, list[dict]]]:
     """
-    For every activity that has TS data, compute best splits at each SPLIT_TARGETS distance.
-    Cache results in BEST_EFFORTS_CACHE_PATH keyed by activity_id; re-computes if update_ts changed.
+    For every activity that has TS data, compute best splits at each SPLIT_TARGETS
+    distance, both by recorded (watch) time and by moving time. Cache results in
+    BEST_EFFORTS_CACHE_PATH keyed by activity_id; re-computes if update_ts changed
+    or the cache predates the recorded/moving split (older cache entries are a
+    flat list rather than a {"recorded", "moving"} dict).
     """
     raw_cache: dict = {}
     if BEST_EFFORTS_CACHE_PATH.exists():
         raw_cache = json.loads(BEST_EFFORTS_CACHE_PATH.read_text(encoding="utf-8"))
 
     cursor  = conn.cursor()
-    result: dict[int, list[dict]] = {}
+    result: dict[int, dict[str, list[dict]]] = {}
     updated = False
     computed = 0
 
@@ -2519,12 +2679,19 @@ def fetch_all_best_efforts(
         key       = str(aid)
 
         if not act.get("ts_data_available"):
-            result[aid] = []
+            result[aid] = {"recorded": [], "moving": []}
             continue
 
         cached = raw_cache.get(key)
-        if cached and cached.get("update_ts") == update_ts:
-            result[aid] = cached["splits"]
+        cached_splits = cached.get("splits") if cached else None
+        if (
+            cached
+            and cached.get("update_ts") == update_ts
+            and isinstance(cached_splits, dict)
+            and "recorded" in cached_splits
+            and "moving" in cached_splits
+        ):
+            result[aid] = cached_splits
             continue
 
         dist_m = act["distance"] or 0
@@ -2552,51 +2719,59 @@ def fetch_all_best_efforts(
 
 def compute_best_efforts_by_distance(
     activities: list[dict],
-    effort_splits: dict[int, list[dict]],
+    effort_splits_full: dict[int, dict[str, list[dict]]],
     top_n: int = 30,
-) -> dict[str, list[dict]]:
+) -> dict[str, dict[str, list[dict]]]:
     """
-    For each SPLIT_TARGETS label, return the top_n efforts sorted by pace (fastest first).
-    Each entry merges split stats with activity-level context (HR, load, elevation grade).
+    For each of "recorded" (watch time) and "moving" (moving time) modes, and for
+    each SPLIT_TARGETS label, return the top_n efforts sorted by pace (fastest
+    first). Each entry merges split stats with activity-level context (HR, load,
+    elevation grade).
     """
     act_by_id = {a["activity_id"]: a for a in activities}
-    by_label: dict[str, list] = {lbl: [] for _, lbl in SPLIT_TARGETS}
+    result: dict[str, dict[str, list[dict]]] = {}
 
-    for aid, splits in effort_splits.items():
-        act = act_by_id.get(aid)
-        if not act:
-            continue
-        dist_m    = act["distance"] or 0
-        elev_gain = act.get("elevation_gain") or 0
-        elev_per_mi = round(elev_gain * 3.28084 / (dist_m / 1609.344), 1) if dist_m > 500 else 0
+    for mode in ("recorded", "moving"):
+        by_label: dict[str, list] = {lbl: [] for _, lbl in SPLIT_TARGETS}
 
-        for sp in splits:
-            lbl = sp["label"]
-            if lbl not in by_label:
+        for aid, splits_by_mode in effort_splits_full.items():
+            act = act_by_id.get(aid)
+            if not act:
                 continue
-            if not (180 <= sp.get("sec_per_mi", 0) <= 1800):
-                continue
-            by_label[lbl].append({
-                "activity_id":   aid,
-                "name":          act["activity_name"],
-                "date":          act["date"],
-                "elapsed_s":     sp["elapsed_s"],
-                "time_fmt":      sp["duration_fmt"],
-                "pace_km":       sp["pace_km"],
-                "pace_mile":     sp["pace_mile"],
-                "sec_per_mi":    sp["sec_per_mi"],
-                "avg_hr":        int(act["average_hr"]) if act.get("average_hr") else None,
-                "load":          round(act["activity_training_load"]) if act.get("activity_training_load") else None,
-                "elev_per_mi":   elev_per_mi,
-                "activity_miles": act["miles"],
-                "is_race":       act["is_race"],
-                "type":          act["activity_type_key"],
-            })
+            splits = splits_by_mode.get(mode, [])
+            dist_m    = act["distance"] or 0
+            elev_gain = act.get("elevation_gain") or 0
+            elev_per_mi = round(elev_gain * 3.28084 / (dist_m / 1609.344), 1) if dist_m > 500 else 0
 
-    return {
-        lbl: sorted(efforts, key=lambda x: x["sec_per_mi"])[:top_n]
-        for lbl, efforts in by_label.items()
-    }
+            for sp in splits:
+                lbl = sp["label"]
+                if lbl not in by_label:
+                    continue
+                if not (180 <= sp.get("sec_per_mi", 0) <= 1800):
+                    continue
+                by_label[lbl].append({
+                    "activity_id":   aid,
+                    "name":          act["activity_name"],
+                    "date":          act["date"],
+                    "elapsed_s":     sp["elapsed_s"],
+                    "time_fmt":      sp["duration_fmt"],
+                    "pace_km":       sp["pace_km"],
+                    "pace_mile":     sp["pace_mile"],
+                    "sec_per_mi":    sp["sec_per_mi"],
+                    "avg_hr":        int(act["average_hr"]) if act.get("average_hr") else None,
+                    "load":          round(act["activity_training_load"]) if act.get("activity_training_load") else None,
+                    "elev_per_mi":   elev_per_mi,
+                    "activity_miles": act["miles"],
+                    "is_race":       act["is_race"],
+                    "type":          act["activity_type_key"],
+                })
+
+        result[mode] = {
+            lbl: sorted(efforts, key=lambda x: x["sec_per_mi"])[:top_n]
+            for lbl, efforts in by_label.items()
+        }
+
+    return result
 
 
 # ─────────────────────────────────────────────
@@ -3121,7 +3296,7 @@ def fetch_all_activities_list(conn: sqlite3.Connection) -> list[dict]:
         """
         SELECT
             a.activity_id, a.activity_name, a.activity_type_key, a.start_ts,
-            a.distance, a.duration, a.average_speed, a.average_hr, a.max_hr,
+            a.distance, a.duration, a.moving_duration, a.average_speed, a.average_hr, a.max_hr,
             a.event_type_key, a.ts_data_available, a.update_ts,
             a.hr_time_in_zone_1, a.hr_time_in_zone_2, a.hr_time_in_zone_3,
             a.hr_time_in_zone_4, a.hr_time_in_zone_5,
@@ -3153,6 +3328,14 @@ def fetch_all_activities_list(conn: sqlite3.Connection) -> list[dict]:
         r["pace_mile"]     = fmt_pace_mile(r["average_speed"])
         r["pace_km"]       = fmt_pace(r["average_speed"])
         r["duration_fmt"]  = fmt_duration(r["duration"])
+        # Moving-time equivalents (watch time minus detected stopped time), used
+        # by the Achievements/Best-Efforts "moving time" toggle. Falls back to the
+        # recorded values when moving_duration isn't populated for an activity.
+        mov_dur = r.get("moving_duration") or r["duration"]
+        r["moving_duration_fmt"]  = fmt_duration(mov_dur)
+        r["average_speed_moving"] = (dist_m / mov_dur) if mov_dur else r["average_speed"]
+        r["pace_mile_moving"]     = fmt_pace_mile(r["average_speed_moving"])
+        r["pace_km_moving"]       = fmt_pace(r["average_speed_moving"])
         r["date"]          = r["start_ts"][:10] if r["start_ts"] else "-"
         r["year"]          = int(r["start_ts"][:4]) if r["start_ts"] else 0
         r["month"]         = int(r["start_ts"][5:7]) if r["start_ts"] else 0
@@ -3184,13 +3367,45 @@ def fetch_all_activities_list(conn: sqlite3.Connection) -> list[dict]:
 
 def compute_achievements(
     activities: list[dict],
-    effort_splits: dict[int, list[dict]],
+    effort_splits_full: dict[int, dict[str, list[dict]]],
     streaks: dict,
     heatmap: dict,
 ) -> dict:
     """
-    No DB queries — everything comes from in-memory structures.
+    Returns {"recorded": {...}, "moving": {...}} — the full achievements payload
+    computed once using raw watch time and once using moving time throughout.
     """
+    return {
+        mode: _compute_achievements_for_mode(
+            activities,
+            {aid: v.get(mode, []) for aid, v in effort_splits_full.items()},
+            streaks, heatmap, mode,
+        )
+        for mode in ("recorded", "moving")
+    }
+
+
+def _compute_achievements_for_mode(
+    activities: list[dict],
+    effort_splits: dict[int, list[dict]],
+    streaks: dict,
+    heatmap: dict,
+    mode: str,
+) -> dict:
+    """
+    No DB queries — everything comes from in-memory structures. `mode` is
+    "recorded" (raw watch time) or "moving" (watch time minus detected stopped
+    time) and selects which duration/pace fields on each activity are used.
+    """
+    duration_fmt_key = "duration_fmt" if mode == "recorded" else "moving_duration_fmt"
+    speed_key        = "average_speed" if mode == "recorded" else "average_speed_moving"
+    pace_mile_key    = "pace_mile" if mode == "recorded" else "pace_mile_moving"
+
+    def _duration_s(act):
+        if mode == "recorded":
+            return act.get("duration") or 0
+        return act.get("moving_duration") or act.get("duration") or 0
+
     today      = date.today()
     act_by_id  = {a["activity_id"]: a for a in activities}
     sorted_acts = sorted(activities, key=lambda a: a["date"])
@@ -3274,7 +3489,7 @@ def compute_achievements(
     for act in activities:
         ym = act["date"][:7]
         monthly_acc[ym]["miles"] += act["miles"]
-        monthly_acc[ym]["hours"] += (act.get("duration") or 0) / 3600
+        monthly_acc[ym]["hours"] += _duration_s(act) / 3600
         monthly_acc[ym]["runs"]  += 1
     monthly_list = sorted(
         [{"ym": k, "date_start": k + "-01", **v} for k, v in monthly_acc.items()],
@@ -3316,8 +3531,8 @@ def compute_achievements(
             "name":           best["activity_name"],
             "date":           best["date"],
             "miles":          best["miles"],
-            "duration_fmt":   best.get("duration_fmt"),
-            "pace_mile":      best.get("pace_mile"),
+            "duration_fmt":   best.get(duration_fmt_key),
+            "pace_mile":      best.get(pace_mile_key),
             "is_race":        best.get("is_race", False),
             "value":          best.get(key),
         }
@@ -3336,7 +3551,7 @@ def compute_achievements(
             "most_elev_365d":  _pick("elevation_gain", _pool(365)),
             "longest_all":     _pick("distance", _pool()),
             "longest_365d":    _pick("distance", _pool(365)),
-            "fastest_avg_all": _pick("average_speed", _pool()),
+            "fastest_avg_all": _pick(speed_key, _pool()),
         }.items() if v is not None
     }
     # Format values that need it
@@ -3381,7 +3596,7 @@ def compute_achievements(
     for i, act in enumerate(sorted_acts, 1):
         cum_miles   += act["miles"]
         cum_elev_ft += (act.get("elevation_gain") or 0) * 3.28084
-        cum_hours   += (act.get("duration") or 0) / 3600
+        cum_hours   += _duration_s(act) / 3600
         if act.get("is_race"):
             race_count += 1
 
@@ -3444,14 +3659,14 @@ def compute_achievements(
             })
             next_race_gate += 1
 
-        if next_spg < len(SUB_PACE_GATES) and act.get("average_speed") and act["average_speed"] > 0:
-            spm = 1609.344 / act["average_speed"]
+        if next_spg < len(SUB_PACE_GATES) and act.get(speed_key) and act[speed_key] > 0:
+            spm = 1609.344 / act[speed_key]
             while next_spg < len(SUB_PACE_GATES) and spm < SUB_PACE_GATES[next_spg][0]:
                 _, pace_label = SUB_PACE_GATES[next_spg]
                 milestones.append({
                     "type": "sub_pace", "icon": "⚡",
                     "title": f"First sub-{pace_label}/mi run",
-                    "detail": f"{act['activity_name']} · {act['pace_mile']}/mi avg",
+                    "detail": f"{act['activity_name']} · {act.get(pace_mile_key)}/mi avg",
                     "date": act["date"],
                     "activity_id": act["activity_id"],
                     "value": f"<{pace_label}",
@@ -3978,6 +4193,451 @@ def compute_notables(
     return notables
 
 
+# ─────────────────────────────────────────────
+# True segments: most-traveled sub-paths shared across DIFFERENT activities
+# ─────────────────────────────────────────────
+
+SEGMENTS_CACHE_VERSION = "v5"
+SEGMENT_CELL_METERS = 20.0
+SEGMENT_MIN_POPULARITY = 15       # min distinct activities through a cell to call it "hot"
+SEGMENT_MIN_LENGTH_M = 250.0      # ~0.15 mi
+SEGMENT_MAX_LENGTH_M = 9700.0     # ~6 mi
+SEGMENT_DEDUP_JACCARD = 0.5
+SEGMENT_MIN_SUPPORT = 12
+SEGMENT_TOP_N = 50
+
+
+def _segment_cell(lat: float, lon: float) -> tuple[int, int]:
+    cell_deg_lat = SEGMENT_CELL_METERS / 111320.0
+    cell_deg_lon = SEGMENT_CELL_METERS / (111320.0 * math.cos(math.radians(lat)) + 1e-9)
+    return (round(lat / cell_deg_lat), round(lon / cell_deg_lon))
+
+
+def _build_segment_trace(cursor: sqlite3.Cursor, activity_id: int, t0_dt) -> list[tuple]:
+    """Ordered, de-duplicated (cell, elapsed_s, dist_m, lat, lon) trace for one activity."""
+    lat_times, lat_vals = _load_named_series(cursor, activity_id, "position_lat", t0_dt)
+    lon_times, lon_vals = _load_named_series(cursor, activity_id, "position_long", t0_dt)
+    if not lat_times or not lon_times:
+        return []
+    d_times, d_vals = load_distance_series(cursor, activity_id)
+    if not d_times:
+        return []
+
+    trace = []
+    last_cell = None
+    for t, lat_raw in zip(lat_times, lat_vals):
+        lon_raw = _interp(lon_times, lon_vals, t)
+        if lon_raw is None or lat_raw == 0 or lon_raw == 0:
+            continue
+        lat = _semicircle_to_deg(lat_raw)
+        lon = _semicircle_to_deg(lon_raw)
+        if abs(lat) < 0.5 and abs(lon) < 0.5:
+            continue
+        cell = _segment_cell(lat, lon)
+        if cell == last_cell:
+            continue
+        dist_m = _interp(d_times, d_vals, t)
+        if dist_m is None:
+            continue
+        trace.append((cell, t, dist_m, round(lat, 5), round(lon, 5)))
+        last_cell = cell
+    return trace
+
+
+def _segment_elevation_tag(cursor: sqlite3.Cursor, source_aid: int, t0_dt, start_t, end_t, length_mi):
+    alt_times, alt_vals = _load_named_series(cursor, source_aid, "enhanced_altitude", t0_dt)
+    if not alt_times or all(v == 0 for v in alt_vals):
+        alt_times, alt_vals = _load_named_series(cursor, source_aid, "altitude", t0_dt)
+    if not alt_times:
+        return "Rolling", 0.0
+    a_start = _interp(alt_times, alt_vals, start_t)
+    a_end = _interp(alt_times, alt_vals, end_t)
+    if a_start is None or a_end is None:
+        return "Rolling", 0.0
+    lo = bisect.bisect_left(alt_times, start_t)
+    hi = bisect.bisect_right(alt_times, end_t)
+    seg_alts = alt_vals[lo:hi]
+    gain = sum(max(0, seg_alts[k + 1] - seg_alts[k]) for k in range(len(seg_alts) - 1))
+    loss = sum(max(0, seg_alts[k] - seg_alts[k + 1]) for k in range(len(seg_alts) - 1))
+    net_ft_per_mi = (a_end - a_start) * 3.28084 / length_mi
+    total_ft_per_mi = (gain + loss) * 3.28084 / length_mi
+    if total_ft_per_mi < 25:
+        tag = "Flat"
+    elif net_ft_per_mi > 40:
+        tag = "Climb"
+    elif net_ft_per_mi < -40:
+        tag = "Descent"
+    else:
+        tag = "Rolling"
+    return tag, round(net_ft_per_mi, 1)
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union if union else 0.0
+
+
+def _segment_length_tag(mi: float) -> str:
+    if mi < 0.4:
+        return "Short"
+    if mi < 1.0:
+        return "Medium"
+    if mi < 2.5:
+        return "Long"
+    return "Very Long"
+
+
+def _load_geocode_cache() -> dict:
+    if GEOCODE_CACHE_PATH.exists():
+        return json.loads(GEOCODE_CACHE_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+def _reverse_geocode_road(lat: float, lon: float, cache: dict) -> str | None:
+    """Look up the road/path/trail name at a coordinate via OSM Nominatim, cached to disk."""
+    key = f"{round(lat, 4)},{round(lon, 4)}"
+    if key in cache:
+        return cache[key]
+
+    url = (
+        "https://nominatim.openstreetmap.org/reverse?format=jsonv2"
+        f"&lat={lat}&lon={lon}&zoom=17&addressdetails=1"
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": "garmin-analysis-v1 (personal use)"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        addr = data.get("address", {})
+        road = (
+            addr.get("road") or addr.get("pedestrian") or addr.get("footway")
+            or addr.get("path") or addr.get("cycleway") or addr.get("residential")
+            or addr.get("neighbourhood") or addr.get("suburb")
+        )
+        cache[key] = road
+        return road
+    except Exception as e:
+        print(f"    geocode lookup failed for ({lat},{lon}): {e}")
+        return None
+    finally:
+        time.sleep(1.1)  # respect Nominatim's 1 req/sec usage policy
+
+
+def _assign_segment_names(seg_meta: list[dict]) -> list[str]:
+    """
+    Build a guaranteed-unique, landmark-based name per segment: road/place name +
+    grade, escalating to add length and finally a geographic direction (never a
+    bare numbered suffix) only if real duplicates remain.
+    """
+    def place_of(m):
+        return m["road"] or m["location"]
+
+    def base_name(m):
+        place = place_of(m)
+        return f"{place} {m['grade_tag']}" if place else f"{m['length_tag']} {m['grade_tag']}"
+
+    def with_length(m):
+        place = place_of(m)
+        return f"{place} {m['length_tag']} {m['grade_tag']}" if place else base_name(m)
+
+    names = [base_name(m) for m in seg_meta]
+
+    counts = Counter(names)
+    for i, m in enumerate(seg_meta):
+        if counts[names[i]] > 1:
+            names[i] = with_length(m)
+
+    counts2 = Counter(names)
+    dup_names = {n for n, c in counts2.items() if c > 1}
+    if dup_names:
+        groups: dict[str, list[int]] = defaultdict(list)
+        for i, n in enumerate(names):
+            if n in dup_names:
+                groups[n].append(i)
+        for idxs in groups.values():
+            lats = [seg_meta[i]["centroid"][0] for i in idxs]
+            lons = [seg_meta[i]["centroid"][1] for i in idxs]
+            use_lat = (max(lats) - min(lats)) >= (max(lons) - min(lons))
+            idxs_sorted = sorted(
+                idxs, key=lambda i: seg_meta[i]["centroid"][0 if use_lat else 1], reverse=True
+            )
+            k = len(idxs_sorted)
+            if k == 2:
+                labels = ["North", "South"] if use_lat else ["East", "West"]
+            elif k == 3:
+                labels = ["North", "Central", "South"] if use_lat else ["East", "Central", "West"]
+            else:
+                dirs = (["North", "North-Central", "Central", "South-Central", "South"] if use_lat
+                        else ["East", "East-Central", "Central", "West-Central", "West"])
+                labels = [dirs[round(i * (len(dirs) - 1) / (k - 1))] for i in range(k)]
+            for pos, i in enumerate(idxs_sorted):
+                names[i] = f"{labels[pos]} {names[i]}"
+
+    return names
+
+
+def _diversify_segments(scored: list[dict], top_n: int) -> list[dict]:
+    """
+    Select top_n from the qualified pool (already sorted by traversal count desc),
+    capping how many can share the same location, length bucket, or grade tag so a
+    handful of short, high-traffic home streets don't crowd out everything else.
+    Backfills by raw count if the caps leave slots unfilled.
+    """
+    max_per_location = max(6, round(top_n * 0.35))
+    max_per_length    = max(6, round(top_n * 0.30))
+    max_per_grade     = max(8, round(top_n * 0.45))
+
+    selected, remaining = [], []
+    loc_counts, length_counts, grade_counts = Counter(), Counter(), Counter()
+
+    for c in scored:
+        loc, lt, gt = c["loc_bucket"], c["length_tag"], c["grade_tag"]
+        if (loc_counts[loc] < max_per_location
+                and length_counts[lt] < max_per_length
+                and grade_counts[gt] < max_per_grade):
+            selected.append(c)
+            loc_counts[loc] += 1
+            length_counts[lt] += 1
+            grade_counts[gt] += 1
+        else:
+            remaining.append(c)
+        if len(selected) >= top_n:
+            break
+
+    if len(selected) < top_n:
+        selected += remaining[: top_n - len(selected)]
+
+    return selected
+
+
+def compute_route_segments(conn: sqlite3.Connection, activities: list[dict]) -> dict:
+    """
+    Find the most-traveled sub-paths shared across DIFFERENT activities (true,
+    Strava-style segments) rather than whole repeated routes. Builds a shared GPS
+    grid-cell popularity index across all outdoor runs, walks each run's trace to
+    find maximal "hot corridor" stretches (visited by many distinct activities),
+    dedupes overlapping candidates, then matches every activity that traversed
+    each surviving segment (verified by distance consistency to reject false
+    matches on self-crossing routes). Cached whole; delete segments-cache.json to
+    force a full recompute.
+    """
+    eligible = [
+        a for a in activities
+        if a.get("activity_type_key") in RUNNING_TYPES
+        and a.get("activity_type_key") != "treadmill_running"
+        and a.get("ts_data_available")
+        and a["activity_id"] not in EXCLUDED_ACTIVITY_IDS
+    ]
+    eligible.sort(key=lambda a: a["date"])
+
+    if SEGMENTS_CACHE_PATH.exists():
+        cached = json.loads(SEGMENTS_CACHE_PATH.read_text(encoding="utf-8"))
+        if (cached.get("activity_count") == len(eligible)
+                and cached.get("cache_version") == SEGMENTS_CACHE_VERSION):
+            print("  Using cached segments (delete segments-cache.json to refresh)")
+            return cached
+
+    print(f"  Tracing {len(eligible)} outdoor GPS runs...")
+    cursor = conn.cursor()
+    act_by_id = {a["activity_id"]: a for a in eligible}
+
+    traces: dict[int, list[tuple]] = {}
+    for i, act in enumerate(eligible, 1):
+        aid = act["activity_id"]
+        t0_dt = _get_t0(cursor, aid)
+        if t0_dt is None:
+            continue
+        tr = _build_segment_trace(cursor, aid, t0_dt)
+        if len(tr) >= 15:
+            traces[aid] = tr
+        if i % 200 == 0:
+            print(f"    traced {i}/{len(eligible)}", flush=True)
+
+    # ── Popularity index: cell -> set(activity_id) ──
+    popularity: dict[tuple, set] = defaultdict(set)
+    for aid, tr in traces.items():
+        for cell, _, _, _, _ in tr:
+            popularity[cell].add(aid)
+    hot_cells = {c for c, acts in popularity.items() if len(acts) >= SEGMENT_MIN_POPULARITY}
+    print(f"  {len(hot_cells)} hot cells (of {len(popularity)} visited) across {len(traces)} traces")
+
+    # ── Candidate generation: walk each trace, find maximal hot-corridor runs ──
+    candidates = []
+    for aid, tr in traces.items():
+        i, n = 0, len(tr)
+        while i < n:
+            if tr[i][0] not in hot_cells:
+                i += 1
+                continue
+            j = i
+            while j + 1 < n and tr[j + 1][0] in hot_cells:
+                j += 1
+            length_m = tr[j][2] - tr[i][2]
+            if SEGMENT_MIN_LENGTH_M <= length_m <= SEGMENT_MAX_LENGTH_M:
+                cells_seq = [tr[k][0] for k in range(i, j + 1)]
+                candidates.append({
+                    "cells": cells_seq,
+                    "cellset": set(cells_seq),
+                    "length_m": length_m,
+                    "source_aid": aid,
+                    "start_t": tr[i][1], "end_t": tr[j][1],
+                    "polyline": [[tr[k][3], tr[k][4]] for k in range(i, j + 1, max(1, (j - i) // 200 + 1))],
+                })
+            i = j + 1
+
+    # ── Dedup: greedy accept longest-first, reject high-overlap duplicates ──
+    candidates.sort(key=lambda c: -c["length_m"])
+    accepted = []
+    for c in candidates:
+        if any(_jaccard(c["cellset"], a["cellset"]) >= SEGMENT_DEDUP_JACCARD for a in accepted):
+            continue
+        accepted.append(c)
+    print(f"  {len(accepted)} candidate segments after dedup (from {len(candidates)} raw)")
+
+    # ── Support: find every activity that actually traverses each segment ──
+    def match_activity(trace, start_cell, end_cell, max_steps):
+        cells = [t[0] for t in trace]
+        try:
+            si = cells.index(start_cell)
+        except ValueError:
+            return None
+        for j in range(si, min(len(cells), si + max_steps)):
+            if cells[j] == end_cell:
+                return (trace[si][1], trace[j][1], trace[si][2], trace[j][2])
+        return None
+
+    scored = []
+    for c in accepted:
+        start_cell, end_cell = c["cells"][0], c["cells"][-1]
+        max_steps = len(c["cells"]) * 4 + 20
+        efforts = []
+        for aid, tr in traces.items():
+            m = match_activity(tr, start_cell, end_cell, max_steps)
+            if m is None:
+                continue
+            t_start, t_end, d_start, d_end = m
+            elapsed = t_end - t_start
+            if elapsed <= 0:
+                continue
+            actual_dist = d_end - d_start
+            if not (0.75 * c["length_m"] <= actual_dist <= 1.25 * c["length_m"]):
+                continue
+            pace = elapsed / (c["length_m"] / 1609.344)
+            if not (150 <= pace <= 2400):
+                continue
+            act = act_by_id.get(aid)
+            if not act:
+                continue
+            efforts.append({
+                "activity_id": aid,
+                "date":        act["date"],
+                "elapsed_s":   round(elapsed, 1),
+                "pace_sec":    round(pace, 1),
+            })
+        if len(efforts) >= SEGMENT_MIN_SUPPORT:
+            c["efforts"] = efforts
+            scored.append(c)
+
+    scored.sort(key=lambda c: -len(c["efforts"]))
+    print(f"  {len(scored)} candidate segments qualified with >= {SEGMENT_MIN_SUPPORT} activities")
+
+    # ── Characterize every qualified candidate (cheap, no network) so selection
+    #    can be diversified before the expensive reverse-geocoding step ──
+    for c in scored:
+        source_aid = c["source_aid"]
+        t0_dt = _get_t0(cursor, source_aid)
+        length_mi = c["length_m"] / 1609.344
+        grade_tag, net_ft_per_mi = _segment_elevation_tag(
+            cursor, source_aid, t0_dt, c["start_t"], c["end_t"], length_mi
+        )
+        c["length_mi"]      = length_mi
+        c["grade_tag"]      = grade_tag
+        c["net_ft_per_mi"]  = net_ft_per_mi
+        c["length_tag"]     = _segment_length_tag(length_mi)
+        c["location"]       = act_by_id.get(source_aid, {}).get("location_name") or None
+        c["loc_bucket"]     = c["location"] or "Unknown"
+
+    top = _diversify_segments(scored, SEGMENT_TOP_N)
+    top.sort(key=lambda c: -len(c["efforts"]))  # display order: most-traveled first
+    print(f"  {len(top)} segments selected (capped per location/length/terrain for variety)")
+
+    # ── Reverse-geocode only the selected segments ──
+    geocode_cache = _load_geocode_cache()
+    print(f"  Reverse-geocoding {len(top)} segment locations (cached)...")
+    seg_meta = []
+    for i, c in enumerate(top, 1):
+        poly = c["polyline"]
+        mid_lat, mid_lon = poly[len(poly) // 2]
+        road = _reverse_geocode_road(mid_lat, mid_lon, geocode_cache)
+        centroid = (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))
+
+        seg_meta.append({
+            "c": c, "grade_tag": c["grade_tag"], "length_tag": c["length_tag"],
+            "net_ft_per_mi": c["net_ft_per_mi"], "road": road, "location": c["location"],
+            "centroid": centroid, "length_mi": c["length_mi"],
+        })
+        if i % 10 == 0:
+            print(f"    geocoded {i}/{len(top)}", flush=True)
+
+    GEOCODE_CACHE_PATH.write_text(json.dumps(geocode_cache, ensure_ascii=False), encoding="utf-8")
+    names = _assign_segment_names(seg_meta)
+
+    segment_list = []
+    memberships: dict[str, list[dict]] = defaultdict(list)
+
+    for m, name in zip(seg_meta, names):
+        c = m["c"]
+        length_mi = m["length_mi"]
+        grade_tag = m["grade_tag"]
+        length_tag = m["length_tag"]
+        net_ft_per_mi = m["net_ft_per_mi"]
+        location = m["location"]
+
+        efforts = sorted(c["efforts"], key=lambda e: e["date"])
+        best = min(efforts, key=lambda e: e["pace_sec"])
+        leaderboard = sorted(efforts, key=lambda e: e["pace_sec"])
+        place_by_aid = {e["activity_id"]: i + 1 for i, e in enumerate(leaderboard)}
+
+        seg_id = hashlib.md5(str(sorted(c["cellset"])).encode()).hexdigest()[:10]
+        segment_list.append({
+            "id":             seg_id,
+            "name":           name,
+            "support":        len(efforts),
+            "length_mi":      round(length_mi, 2),
+            "grade_tag":      grade_tag,
+            "length_tag":     length_tag,
+            "net_elev_ft_mi": net_ft_per_mi,
+            "location":       location,
+            "polyline":       c["polyline"],
+            "pr_pace_sec":    best["pace_sec"],
+            "pr_activity_id": best["activity_id"],
+            "first_date":     efforts[0]["date"],
+            "last_date":      efforts[-1]["date"],
+            "efforts":        efforts,
+        })
+
+        for e in efforts:
+            memberships[str(e["activity_id"])].append({
+                "segment_id":   seg_id,
+                "segment_name": name,
+                "support":      len(efforts),
+                "place":        place_by_aid[e["activity_id"]],
+                "is_pr":        e["activity_id"] == best["activity_id"],
+            })
+
+    result = {
+        "activity_count": len(eligible),
+        "cache_version":  SEGMENTS_CACHE_VERSION,
+        "routes":         segment_list,
+        "memberships":    dict(memberships),
+    }
+    SEGMENTS_CACHE_PATH.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    print(f"  {len(segment_list)} true segments detected")
+    return result
+
+
 def build_activity_pages(
     conn: sqlite3.Connection,
     activities: list[dict],
@@ -3985,6 +4645,7 @@ def build_activity_pages(
     all_notables: dict[int, list],
     calorie_strata: list[dict] | None = None,
     all_effort_splits: dict[int, list[dict]] | None = None,
+    route_memberships: dict[str, list[dict]] | None = None,
 ) -> None:
     manifest: dict = {}
     if ACTIVITIES_MANIFEST_PATH.exists():
@@ -4023,15 +4684,19 @@ def build_activity_pages(
         activity_splits: list[dict] = []
         split_ranks: dict[str, dict] = {}
         lap_splits: list[dict] = []
+        route: list[list[float]] = []
+        dynamics_series: list[dict] = []
         if act.get("ts_data_available"):
             chart_series = fetch_activity_chart_series(cursor, int(aid))
             mile_splits  = per_mile_splits_for_activity(cursor, int(aid))
             dist_m = act.get("distance") or 0
-            activity_splits = best_splits_for_activity(cursor, int(aid), dist_m)
+            activity_splits = best_splits_for_activity(cursor, int(aid), dist_m)["recorded"]
             if all_effort_splits is not None:
                 split_ranks = compute_split_ranks(
                     int(aid), act.get("date", ""), all_effort_splits, activities
                 )
+            route = fetch_activity_route(cursor, int(aid))
+            dynamics_series = fetch_dynamics_series(cursor, int(aid))
         lap_splits = fetch_lap_splits(cursor, int(aid))
         moving_stats = compute_moving_time_stats(lap_splits)
 
@@ -4060,9 +4725,14 @@ def build_activity_pages(
             moving_stats=moving_stats,
             activity_splits=activity_splits,
             split_ranks=split_ranks,
+            route=route,
+            route_json=json.dumps(route),
+            dynamics_series=dynamics_series,
+            dynamics_series_json=json.dumps(dynamics_series),
             prev_id=prev_id,
             next_id=next_id,
             notables=all_notables.get(int(aid), []),
+            route_memberships=(route_memberships or {}).get(aid, []),
             calorie_healthy=calorie_pair[0] if calorie_pair else None,
             calorie_unhealthy=calorie_pair[1] if calorie_pair else None,
             insights=insights,
@@ -4663,7 +5333,11 @@ def build_site():
     print(f"  {len(all_activities)} activities loaded")
 
     print(f"\nComputing best efforts across all activities (cached)...")
-    all_effort_splits = fetch_all_best_efforts(conn, all_activities)
+    all_effort_splits_full = fetch_all_best_efforts(conn, all_activities)
+    # Recorded (watch-time) view — the shape every consumer besides the
+    # Best-Efforts/Achievements pages expects (notables, predictor, activity
+    # pages, AI race analyses, etc. all keep their pre-existing behavior).
+    all_effort_splits = {aid: v.get("recorded", []) for aid, v in all_effort_splits_full.items()}
 
     print(f"\nComputing notables for all activities...")
     all_notables = compute_notables(all_activities, all_effort_splits)
@@ -4683,8 +5357,14 @@ def build_site():
     print(f"\nGenerating calorie strata with Ollama ({len(CALORIE_STRATA)} strata, skips cached)...")
     calorie_strata = generate_calorie_strata()
 
+    print(f"\nMining most-traveled GPS segments (cached)...")
+    route_segments = compute_route_segments(conn, all_activities)
+
     print(f"\nBuilding per-activity pages (skips unchanged)...")
-    build_activity_pages(conn, all_activities, env, all_notables, calorie_strata, all_effort_splits)
+    build_activity_pages(
+        conn, all_activities, env, all_notables, calorie_strata, all_effort_splits,
+        route_segments["memberships"],
+    )
 
     prs   = compute_prs(races)
     years = sorted({r["year"] for r in races}, reverse=True)
@@ -4772,58 +5452,68 @@ def build_site():
     print(f"Generated training.html")
 
     # ── best efforts
-    best_efforts = compute_best_efforts_by_distance(all_activities, all_effort_splits)
+    best_efforts = compute_best_efforts_by_distance(all_activities, all_effort_splits_full)
 
-    scatter_pts: list[dict] = []
-    for _a in all_activities:
-        _spd = _a.get("average_speed") or 0
-        if _spd <= 0:
-            continue
-        _spm = 1609.34 / _spd
-        if not (180 <= _spm <= 1200):
-            continue
-        _mi = _a.get("miles") or 0
-        if _mi < 0.3:
-            continue
-        scatter_pts.append({
-            "mi":   round(_mi, 2),
-            "spm":  round(_spm, 1),
-            "date": _a.get("date", ""),
-            "id":   _a["activity_id"],
-            "race": bool(_a.get("is_race")),
-        })
-
-    # PR progression: chronological list of when each key-distance PR was set
+    # Distance/pace scatter and PR-progression charts are computed once per mode
+    # (recorded/moving) so they stay consistent with whichever the page toggle picks.
+    _act_map = {a["activity_id"]: a for a in all_activities}
     _PR_LABELS = ["1 mile", "5K", "10K", "Half Marathon", "Marathon"]
-    _act_map   = {a["activity_id"]: a for a in all_activities}
-    pr_prog: dict = {}
-    for _lbl in _PR_LABELS:
-        _dated: list[dict] = []
-        for _aid, _splits in all_effort_splits.items():
-            _act = _act_map.get(_aid)
-            if not _act:
+
+    scatter_pts: dict[str, list[dict]] = {}
+    pr_prog: dict[str, dict] = {}
+    for _mode in ("recorded", "moving"):
+        _speed_key = "average_speed" if _mode == "recorded" else "average_speed_moving"
+
+        _pts: list[dict] = []
+        for _a in all_activities:
+            _spd = _a.get(_speed_key) or 0
+            if _spd <= 0:
                 continue
-            for _sp in _splits:
-                if _sp.get("label") == _lbl:
-                    _spm = _sp.get("sec_per_mi", 0)
-                    if 180 <= _spm <= 1200:
-                        _dated.append({
-                            "date": _act["date"],
-                            "spm":  round(_spm, 1),
-                            "pace": _sp.get("pace_mile", ""),
-                            "time": _sp.get("duration_fmt", ""),
-                            "id":   _aid,
-                        })
-                    break
-        _dated.sort(key=lambda x: x["date"])
-        _prog: list[dict] = []
-        _best_spm = float("inf")
-        for _e in _dated:
-            if _e["spm"] < _best_spm:
-                _best_spm = _e["spm"]
-                _prog.append(_e)
-        if _prog:
-            pr_prog[_lbl] = _prog
+            _spm = 1609.34 / _spd
+            if not (180 <= _spm <= 1200):
+                continue
+            _mi = _a.get("miles") or 0
+            if _mi < 0.3:
+                continue
+            _pts.append({
+                "mi":   round(_mi, 2),
+                "spm":  round(_spm, 1),
+                "date": _a.get("date", ""),
+                "id":   _a["activity_id"],
+                "race": bool(_a.get("is_race")),
+            })
+        scatter_pts[_mode] = _pts
+
+        # PR progression: chronological list of when each key-distance PR was set
+        _prog_by_lbl: dict = {}
+        for _lbl in _PR_LABELS:
+            _dated: list[dict] = []
+            for _aid, _splits in all_effort_splits_full.items():
+                _act = _act_map.get(_aid)
+                if not _act:
+                    continue
+                for _sp in _splits.get(_mode, []):
+                    if _sp.get("label") == _lbl:
+                        _spm = _sp.get("sec_per_mi", 0)
+                        if 180 <= _spm <= 1200:
+                            _dated.append({
+                                "date": _act["date"],
+                                "spm":  round(_spm, 1),
+                                "pace": _sp.get("pace_mile", ""),
+                                "time": _sp.get("duration_fmt", ""),
+                                "id":   _aid,
+                            })
+                        break
+            _dated.sort(key=lambda x: x["date"])
+            _prog: list[dict] = []
+            _best_spm = float("inf")
+            for _e in _dated:
+                if _e["spm"] < _best_spm:
+                    _best_spm = _e["spm"]
+                    _prog.append(_e)
+            if _prog:
+                _prog_by_lbl[_lbl] = _prog
+        pr_prog[_mode] = _prog_by_lbl
 
     # Monthly effort density by distance bucket
     _DBUCKETS = [
@@ -4863,7 +5553,7 @@ def build_site():
     print(f"Generated best-efforts.html")
 
     # ── achievements
-    achievements = compute_achievements(all_activities, all_effort_splits, streaks, activity_heatmap)
+    achievements = compute_achievements(all_activities, all_effort_splits_full, streaks, activity_heatmap)
     (DIST_DIR / "achievements-data.js").write_text(
         "const ACHIEVEMENTS = " + json.dumps(achievements) + ";",
         encoding="utf-8",
@@ -4962,6 +5652,16 @@ def build_site():
     html = tmpl.render(**shared)
     (DIST_DIR / "body.html").write_text(html, encoding="utf-8")
     print(f"Generated body.html")
+
+    # ── segments
+    (DIST_DIR / "segments-data.js").write_text(
+        "const SEGMENTS_DATA = " + json.dumps(route_segments["routes"]) + ";",
+        encoding="utf-8",
+    )
+    tmpl = env.get_template("segments.html")
+    html = tmpl.render(**shared)
+    (DIST_DIR / "segments.html").write_text(html, encoding="utf-8")
+    print(f"Generated segments.html ({len(route_segments['routes'])} segments)")
 
     # ── recent page
     build_recent_page(all_activities, all_notables, all_effort_splits, future_races, prs, env, shared)

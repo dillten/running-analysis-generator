@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Segments</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Atkinson+Hyperlegible+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script src="segments-data.js?v={{ build_ts }}"></script>
+<style>
+  main { padding: 20px 28px; max-width: 1200px; }
+
+  /* ── Summary bar ── */
+  .achieve-bar {
+    display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 20px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden;
+  }
+  .achieve-stat { flex: 1; min-width: 130px; padding: 14px 18px; text-align: center; border-right: 1px solid var(--border); }
+  .achieve-stat:last-child { border-right: none; }
+  .achieve-num { font-size: 26px; font-weight: 700; line-height: 1; font-family: 'Atkinson Hyperlegible Mono', monospace; color: var(--accent); }
+  .achieve-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); margin-top: 5px; }
+
+  /* ── Filter bar ── */
+  .filter-bar { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 16px; }
+  .filter-btn {
+    font-size: 11px; font-weight: 700; padding: 5px 12px;
+    border-radius: 5px; border: 1px solid var(--border);
+    background: var(--bg2); color: var(--muted2); cursor: pointer;
+    font-family: 'Atkinson Hyperlegible Mono', monospace;
+  }
+  .filter-btn:hover { color: var(--text); border-color: var(--muted); }
+  .filter-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+
+  /* ── Segment grid ── */
+  .route-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .route-card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; cursor: pointer; transition: border-color 0.12s, transform 0.08s;
+  }
+  .route-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .route-card.active { border-color: var(--accent); background: rgba(0,212,255,0.06); }
+  .rc-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  .rc-meta { font-size: 10.5px; color: var(--muted2); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .rc-meta span { white-space: nowrap; }
+  .rc-count { color: var(--accent); font-weight: 700; }
+  .tag-pill {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700;
+    padding: 1px 6px; border-radius: 3px; border: 1px solid;
+  }
+  .tag-Climb   { color: #f59e0b; border-color: rgba(245,158,11,0.4); }
+  .tag-Descent { color: #34d399; border-color: rgba(52,211,153,0.4); }
+  .tag-Rolling { color: #a78bfa; border-color: rgba(167,139,250,0.4); }
+  .tag-Flat    { color: #60a5fa; border-color: rgba(96,165,250,0.4); }
+  .rc-pr { margin-top: 8px; font-size: 11px; color: var(--accent3); font-weight: 700; }
+
+  /* ── Detail panel ── */
+  #detail { display: none; }
+  #detail.show { display: block; }
+  .detail-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    flex-wrap: wrap; gap: 12px; margin-bottom: 14px;
+  }
+  .detail-title { font-size: 20px; font-weight: 700; color: var(--text); }
+  .detail-sub { font-size: 12px; color: var(--muted2); margin-top: 3px; }
+  .detail-tags { display: flex; gap: 6px; margin-top: 6px; }
+  .detail-layout { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .detail-layout { grid-template-columns: 1fr; } }
+
+  #route-map { width: 100%; height: 260px; border-radius: 10px; overflow: hidden; background: #060d14; border: 1px solid var(--border); }
+  html[data-theme="light"] #route-map { background: #d8e8f0; }
+
+  .summary-bar {
+    display: flex; gap: 24px; padding: 10px 16px; margin-bottom: 14px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+    font-size: 11px; flex-wrap: wrap;
+  }
+  .summary-bar .s-item { display: flex; flex-direction: column; gap: 2px; }
+  .summary-bar .s-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+  .summary-bar .s-val { font-family: 'Atkinson Hyperlegible Mono', monospace; color: var(--accent); font-size: 13px; font-weight: 700; }
+  .summary-bar .s-val.green { color: var(--accent3); }
+
+  .chart-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  #progress-chart { width: 100%; height: 200px; display: block; cursor: crosshair; }
+
+  .table-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; max-height: 480px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    background: var(--bg3); color: var(--muted); font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--border);
+    white-space: nowrap; position: sticky; top: 0;
+  }
+  thead th:first-child { text-align: left; }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  tbody tr.is-pr td.pace-cell { color: #ffd700; }
+  td { padding: 6px 12px; text-align: right; white-space: nowrap; font-family: 'Atkinson Hyperlegible Mono', monospace; font-size: 11.5px; }
+  td:first-child { text-align: left; }
+  td.pace-cell { font-size: 13px; font-weight: 700; color: var(--accent); }
+  td.place-cell { color: var(--muted); font-size: 11px; }
+  td a { color: inherit; text-decoration: none; }
+  td a:hover { color: var(--accent); }
+
+  .empty-hint { color: var(--muted); font-size: 12px; padding: 30px; text-align: center; }
+
+  footer { margin-top: 36px; padding: 14px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; }
+</style>
+<script src="theme.js?v={{ build_ts }}"></script>
+</head>
+<body>
+
+<header>
+  <h1>&#x1F3C1; Segments</h1>
+  <span class="subtitle">Your most-traveled stretches of road and trail, mined from GPS across every activity &mdash; pace progression per segment, Strava-style</span>
+</header>
+
+<div class="nav">
+  <a href="index.html">Races</a>
+  <a href="activities.html">Activities</a>
+  <a href="map.html">Map</a>
+  <a href="analysis.html">Analysis</a>
+  <a href="mile-splits.html">Mile Splits</a>
+  <a href="trophies.html">Trophy Room</a>
+  <a href="training.html">Training Plans</a>
+  <a href="ai-analysis.html">AI Analysis</a>
+  <a href="best-efforts.html">Best Efforts</a>
+  <a href="achievements.html">Achievements</a>
+  <a href="predictor.html">Predictor</a>
+  <a href="sleep.html">Sleep</a>
+  <a href="body.html">Body</a>
+  <a href="recent.html">Recent</a>
+  <a href="segments.html" class="active">Segments</a>
+  <button class="theme-toggle" onclick="toggleTheme()">Light</button>
+</div>
+
+<main>
+
+  <div id="empty-hint" class="empty-hint" style="display:none;">No frequently-traveled segments detected yet.</div>
+
+  <div class="achieve-bar">
+    <div class="achieve-stat">
+      <div class="achieve-num" id="stat-segments">0</div>
+      <div class="achieve-label">Segments Found</div>
+    </div>
+    <div class="achieve-stat">
+      <div class="achieve-num" id="stat-activities">0</div>
+      <div class="achieve-label">Activities Covered</div>
+    </div>
+    <div class="achieve-stat">
+      <div class="achieve-num" id="stat-top">&mdash;</div>
+      <div class="achieve-label">Most-Traveled</div>
+    </div>
+    <div class="achieve-stat">
+      <div class="achieve-num" id="stat-longest">&mdash;</div>
+      <div class="achieve-label">Longest Segment</div>
+    </div>
+  </div>
+
+  <div class="filter-bar" id="filter-bar"></div>
+
+  <div id="detail">
+    <div class="detail-head">
+      <div>
+        <div class="detail-title" id="d-title">&mdash;</div>
+        <div class="detail-sub" id="d-sub">&mdash;</div>
+        <div class="detail-tags" id="d-tags"></div>
+      </div>
+    </div>
+
+    <div class="detail-layout">
+      <div>
+        <div class="summary-bar" id="summary-bar"></div>
+
+        <div class="chart-card">
+          <canvas id="progress-chart"></canvas>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Place</th><th>Date</th><th>Elapsed</th><th>Pace</th></tr>
+            </thead>
+            <tbody id="efforts-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="route-map"></div>
+    </div>
+  </div>
+
+  <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.9px;color:var(--muted);margin:24px 0 10px;">
+    All Segments
+  </div>
+  <div id="route-grid" class="route-grid"></div>
+
+</main>
+
+<footer>Generated from <a href="https://connect.garmin.com">Garmin Connect</a> data using <a href="https://github.com/dillten/garmin-analysis">garmin-analysis v1</a>.</footer>
+
+<script>
+const SEGMENTS = (typeof SEGMENTS_DATA !== 'undefined') ? SEGMENTS_DATA : [];
+let currentSeg = null;
+let activeFilter = null;
+let leafletMap = null, leafletLine = null;
+
+function fmtPace(sec) {
+  if (sec === null || sec === undefined) return '–';
+  const mn = Math.floor(sec / 60), sc = Math.round(sec % 60);
+  return `${mn}:${sc.toString().padStart(2, '0')}/mi`;
+}
+function fmtElapsed(sec) {
+  const mn = Math.floor(sec / 60), sc = Math.round(sec % 60);
+  return `${mn}:${sc.toString().padStart(2, '0')}`;
+}
+function isLightTheme() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+
+function renderStats() {
+  document.getElementById('stat-segments').textContent = SEGMENTS.length;
+  const distinctActs = new Set();
+  SEGMENTS.forEach(s => s.efforts.forEach(e => distinctActs.add(e.activity_id)));
+  document.getElementById('stat-activities').textContent = distinctActs.size;
+  if (SEGMENTS.length) {
+    const top = SEGMENTS.slice().sort((a, b) => b.support - a.support)[0];
+    document.getElementById('stat-top').textContent = `${top.support}×`;
+    const longest = SEGMENTS.slice().sort((a, b) => b.length_mi - a.length_mi)[0];
+    document.getElementById('stat-longest').textContent = `${longest.length_mi} mi`;
+  }
+}
+
+function renderFilterBar() {
+  const tags = ['All', ...new Set(SEGMENTS.map(s => s.grade_tag))];
+  const bar = document.getElementById('filter-bar');
+  bar.innerHTML = '';
+  tags.forEach(tag => {
+    const btn = document.createElement('button');
+    btn.className = 'filter-btn' + ((tag === 'All' && !activeFilter) || tag === activeFilter ? ' active' : '');
+    btn.textContent = tag;
+    btn.addEventListener('click', () => {
+      activeFilter = tag === 'All' ? null : tag;
+      renderFilterBar();
+      renderGrid();
+    });
+    bar.appendChild(btn);
+  });
+}
+
+function renderGrid() {
+  const grid = document.getElementById('route-grid');
+  grid.innerHTML = '';
+  const list = activeFilter ? SEGMENTS.filter(s => s.grade_tag === activeFilter) : SEGMENTS;
+  list.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'route-card';
+    card.dataset.id = s.id;
+    card.innerHTML = `
+      <div class="rc-name">${s.name}</div>
+      <div class="rc-meta">
+        <span class="rc-count">${s.support}×</span>
+        <span>${s.length_mi} mi</span>
+        <span class="tag-pill tag-${s.grade_tag}">${s.grade_tag}</span>
+        ${s.location ? `<span>${s.location}</span>` : ''}
+      </div>
+      <div class="rc-pr">PR ${fmtPace(s.pr_pace_sec)}</div>
+    `;
+    card.addEventListener('click', () => selectSegment(s.id, true));
+    grid.appendChild(card);
+  });
+}
+
+function selectSegment(id, scroll) {
+  currentSeg = SEGMENTS.find(s => s.id === id);
+  if (!currentSeg) return;
+  history.replaceState(null, '', '#' + id);
+  if (scroll) {
+    document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  document.querySelectorAll('.route-card').forEach(c => {
+    c.classList.toggle('active', c.dataset.id === id);
+  });
+
+  document.getElementById('d-title').textContent = currentSeg.name;
+  document.getElementById('d-sub').textContent =
+    `${currentSeg.support} runs · ${currentSeg.length_mi} mi · ` +
+    `${currentSeg.first_date} → ${currentSeg.last_date}` +
+    (currentSeg.location ? ` · ${currentSeg.location}` : '');
+  document.getElementById('d-tags').innerHTML =
+    `<span class="tag-pill tag-${currentSeg.grade_tag}">${currentSeg.grade_tag}</span>
+     <span class="tag-pill" style="color:var(--muted2);border-color:var(--border);">${currentSeg.length_tag}</span>`;
+
+  renderEfforts();
+  document.getElementById('detail').classList.add('show');
+  drawSegmentMap();
+}
+
+function renderEfforts() {
+  const efforts = currentSeg.efforts.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const first = efforts[0];
+  const best = efforts.reduce((a, b) => b.pace_sec < a.pace_sec ? b : a);
+  const latest = efforts[efforts.length - 1];
+  document.getElementById('summary-bar').innerHTML = `
+    <div class="s-item"><span class="s-label">Efforts</span><span class="s-val">${efforts.length}</span></div>
+    <div class="s-item"><span class="s-label">First</span><span class="s-val">${fmtPace(first.pace_sec)}</span></div>
+    <div class="s-item"><span class="s-label">PR</span><span class="s-val green">${fmtPace(best.pace_sec)}</span></div>
+    <div class="s-item"><span class="s-label">Latest</span><span class="s-val">${fmtPace(latest.pace_sec)}</span></div>
+  `;
+
+  const leaderboard = efforts.slice().sort((a, b) => a.pace_sec - b.pace_sec);
+  const placeByAid = {};
+  leaderboard.forEach((e, i) => { placeByAid[e.activity_id] = i + 1; });
+
+  const tbody = document.getElementById('efforts-body');
+  tbody.innerHTML = '';
+  efforts.slice().reverse().forEach(e => {
+    const tr = document.createElement('tr');
+    if (e.activity_id === currentSeg.pr_activity_id) tr.classList.add('is-pr');
+    tr.innerHTML = `
+      <td class="place-cell">#${placeByAid[e.activity_id]}</td>
+      <td><a href="activity/${e.activity_id}.html">${e.date}</a></td>
+      <td>${fmtElapsed(e.elapsed_s)}</td>
+      <td class="pace-cell">${fmtPace(e.pace_sec)}${e.activity_id === currentSeg.pr_activity_id ? ' ★' : ''}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  drawProgressChart(efforts, currentSeg.pr_pace_sec);
+}
+
+function drawProgressChart(efforts, prPace) {
+  const canvas = document.getElementById('progress-chart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.getBoundingClientRect().width || 700;
+  const H = 200;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const PAD = { top: 14, right: 16, bottom: 26, left: 50 };
+  const cw = W - PAD.left - PAD.right;
+  const ch = H - PAD.top - PAD.bottom;
+  const light = isLightTheme();
+  const gridCol = light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.07)';
+  const labelCol = light ? '#888880' : '#64748b';
+
+  if (!efforts.length) return;
+  const CHART_PACE_CAP = 720; // 12:00/mi — clip outlier slow efforts so the scale stays readable
+  const clamp = p => Math.min(p, CHART_PACE_CAP);
+  const paces = efforts.map(e => clamp(e.pace_sec));
+  const pMin = Math.min(...paces), pMax = Math.max(...paces);
+  const span = (pMax - pMin) || 10;
+  const scaleMin = pMin - span * 0.15, scaleMax = Math.min(pMax + span * 0.15, CHART_PACE_CAP);
+
+  const n = efforts.length;
+  const toX = i => PAD.left + (n === 1 ? cw / 2 : (i / (n - 1)) * cw);
+  const toY = p => PAD.top + (scaleMax - p) / (scaleMax - scaleMin) * ch;
+
+  ctx.font = '9px "Atkinson Hyperlegible Mono", monospace';
+  const step = span > 120 ? 60 : span > 40 ? 20 : 10;
+  const start = Math.ceil(scaleMin / step) * step;
+  for (let p = start; p <= scaleMax; p += step) {
+    const y = toY(p);
+    ctx.strokeStyle = gridCol; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cw, y); ctx.stroke();
+    ctx.fillStyle = labelCol; ctx.textAlign = 'right';
+    ctx.fillText(fmtPace(p), PAD.left - 6, y + 3);
+  }
+
+  // PR dashed line
+  const prY = toY(prPace);
+  ctx.strokeStyle = 'rgba(255,215,0,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(PAD.left, prY); ctx.lineTo(PAD.left + cw, prY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // line
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  efforts.forEach((e, i) => {
+    const x = toX(i), y = toY(clamp(e.pace_sec));
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // points (clipped efforts drawn hollow at the cap line so they don't read as real values)
+  efforts.forEach((e, i) => {
+    const x = toX(i), y = toY(clamp(e.pace_sec));
+    const clipped = e.pace_sec > CHART_PACE_CAP;
+    ctx.fillStyle = clipped ? 'transparent' : (e.pace_sec === prPace ? '#ffd700' : '#00d4ff');
+    ctx.strokeStyle = clipped ? '#f87171' : 'transparent';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, e.pace_sec === prPace ? 4 : 2.5, 0, Math.PI * 2);
+    ctx.fill(); if (clipped) ctx.stroke();
+  });
+
+  // x labels (first / last)
+  ctx.fillStyle = labelCol; ctx.textAlign = 'left';
+  ctx.fillText(efforts[0].date, PAD.left, H - 8);
+  ctx.textAlign = 'right';
+  ctx.fillText(efforts[n - 1].date, PAD.left + cw, H - 8);
+}
+
+function drawSegmentMap() {
+  const pts = currentSeg.polyline;
+  if (!leafletMap) {
+    leafletMap = L.map('route-map', { zoomControl: true, attributionControl: false, scrollWheelZoom: false });
+    const TILE_DARK  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    const attrib = '&copy; <a href="https://carto.com">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+    let tileLayer = L.tileLayer(isLightTheme() ? TILE_LIGHT : TILE_DARK, { attribution: attrib, subdomains: 'abcd', maxZoom: 19 }).addTo(leafletMap);
+    onThemeChange(() => {
+      leafletMap.removeLayer(tileLayer);
+      tileLayer = L.tileLayer(isLightTheme() ? TILE_LIGHT : TILE_DARK, { attribution: attrib, subdomains: 'abcd', maxZoom: 19 }).addTo(leafletMap);
+    });
+  }
+  if (leafletLine) leafletMap.removeLayer(leafletLine);
+  if (!pts || !pts.length) return;
+  leafletLine = L.polyline(pts, { color: '#00d4ff', weight: 4, opacity: 0.9 }).addTo(leafletMap);
+  L.circleMarker(pts[0], { radius: 6, fillColor: '#10b981', color: '#10b981', weight: 2, fillOpacity: 0.9 })
+    .bindPopup('Start').addTo(leafletMap);
+  L.circleMarker(pts[pts.length - 1], { radius: 6, fillColor: '#f87171', color: '#f87171', weight: 2, fillOpacity: 0.9 })
+    .bindPopup('End').addTo(leafletMap);
+  leafletMap.fitBounds(leafletLine.getBounds(), { padding: [16, 16] });
+  setTimeout(() => leafletMap.invalidateSize(), 50);
+}
+
+if (!SEGMENTS.length) {
+  document.getElementById('empty-hint').style.display = 'block';
+}
+renderStats();
+renderFilterBar();
+renderGrid();
+
+const hashId = window.location.hash.replace('#', '');
+if (hashId && SEGMENTS.find(s => s.id === hashId)) {
+  selectSegment(hashId);
+} else if (SEGMENTS.length) {
+  selectSegment(SEGMENTS[0].id);
+}
+
+window.addEventListener('resize', () => {
+  if (currentSeg) drawProgressChart(
+    currentSeg.efforts.slice().sort((a, b) => a.date.localeCompare(b.date)),
+    currentSeg.pr_pace_sec
+  );
+});
+</script>
+
+</body>
+</html>
